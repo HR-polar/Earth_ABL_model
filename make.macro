@@ -1,0 +1,4 @@
+FC = gfortran
+CXX = g++
+FFLAGS = -fdefault-real-8 -fdefault-double-8
+
