@@ -16,6 +16,7 @@ subroutine initabl_c(albedo, ug, vg, slon, semis, rlat, z0, taur, p0, q0, t0, nj
   REAL(c_double), DIMENSION(nj), INTENT(OUT) :: dedzm, dedzt, zm, zt, u, v, t, q, qi, e, ep, uw, vw, wt, wq, wqi, km, kh
   REAL(c_double),                INTENT(OUT) :: ustar
 
+  ! Call the FORTRAN 77 function
   CALL Initialize_NeXtSIM_ABL(albedo,ug,vg,slon,semis,rlat,z0, &
     taur,p0,q0,t0, &
     Nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,ustar)
@@ -39,9 +40,10 @@ subroutine stepabl_c(albedo, ug, vg, slon, semis, rlat, z0, taur, p0, ds, ha, jd
   REAL(c_double), DIMENSION(nj), INTENT(OUT) :: dedzm, dedzt, zm, zt, u, v, t, q, qi, e, ep, uw, vw, wt, wq, wqi, km, kh
   REAL(c_double),                INTENT(OUT) :: ustar
 
+  ! Call the FORTRAN 77 function
   CALL Integrate_NeXtSIM_ABL(albedo,ug,vg,slon,semis,rlat,z0, &
     taur,p0,ds,ha,jd, &
     nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,ustar)
 
-end subroutine stepABL_c
+end subroutine stepabl_c
 

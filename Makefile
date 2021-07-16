@@ -1,26 +1,30 @@
+# Include local defenitions
 include make.macro
 
+# Put objects and libraries in seperate directories
 OBJ_DIR = obj
 LIB_DIR = lib
 
+# The source files we need
 SRC_FOR = Initialization_module_NeXtSIM.for Command_module_for_NeXtSIM.for Physics.for Solver.for Radiation.for
 SRC_F90 = neXtSIM_f2008_interface.f90
 SRC_CXX = ABL.cpp
 
+# Resulting object files
 OBJ_FOR = $(SRC_FOR:%.for=$(OBJ_DIR)/%.o)
 OBJ_F90 = $(SRC_F90:%.f90=$(OBJ_DIR)/%.o)
 OBJ_CXX = $(SRC_CXX:%.cpp=$(OBJ_DIR)/%.o)
 
+# Library name
 LIB = $(LIB_DIR)/libearthabl.a
 
+# We always need those flags
+# I hope this is not too compiler dependent, otherwise they should go into make.macro.
 FFLAGS += -std=legacy
 F90FLAGS += -std=f2008 -lstdc++
 CXXFLAGS += -lgfortran
 
-# gfortran -std=legacy -c Initialization_module_NeXtSIM.for Command_module_for_NeXtSIM.for Physics.for Solver.for Radiation.for 
-# gfortran -std=f2008 -lstdc++ -c neXtSIM_interface.f90
-# g++ -lgfortran -c neXtSIM_interface.cpp
-
+# Rules
 
 $(LIB): $(OBJ_FOR) $(OBJ_F90) $(OBJ_CXX)
 	@mkdir -p $(LIB_DIR)

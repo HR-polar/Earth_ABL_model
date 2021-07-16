@@ -4,6 +4,7 @@
 
 extern "C"
 {
+    // NB: The function names must be lower case - otherwise the linker has problems because Fortran is case insensitive.
     void initabl_c(
             // inputs:
             const double *, //albedo
