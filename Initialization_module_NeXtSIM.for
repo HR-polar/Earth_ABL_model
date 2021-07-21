@@ -48,7 +48,7 @@ C     PARAMETER(nj=241,nv=6,nw=0,ni=11,ir=121)
       PARAMETER(nv=6,nw=0,ni=11,ir=121)
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       REAL*8 ug_in, vg_in ,z0_in, ustar_out,q0,t0
-      REAL*8 albedo,rlat_in,rlat,slon,semis
+      REAL*8 albedo,rlat_in,rlat,slon,semis,p0
       COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       REAL betam,betah,gammam,gammah,pr
       COMMON /constb/betam,betah,gammam,gammah,pr
@@ -75,15 +75,15 @@ C     PARAMETER(nj=241,nv=6,nw=0,ni=11,ir=121)
       DATA zout,zwind/0.25,0.5,1.,1.3/
       REAL t01,q01,qi01,blht,ss05,ssz1,ssz2
 
-      REAL dblht,dL,ustarp(nj),qstarp(nj),qistarp(nj),tstarp(nj)
+c     REAL dblht,dL,ustarp(nj),qstarp(nj),qistarp(nj),tstarp(nj)
       REAL qold(nj-1),qiold(nj-1)
-      REAL*8 dtvis(nj),tvisk(ir)
-      REAL*8 wc(ir,nj)
-      REAL*8 conc1(ir,nj),conc2(ir,nj),dlamb,dzetad,p0
-      REAL*8 zd(nj),rad(ir),scaled(ir),zmd(nj),F(ir,nj),F1(ir,nj)
-      REAL*8 value
+c     REAL*8 dtvis(nj),tvisk(ir)
+c     REAL*8 wc(ir,nj)
+c     REAL*8 conc1(ir,nj),conc2(ir,nj),dlamb,dzetad,p0
+c     REAL*8 zd(nj),rad(ir),scaled(ir),zmd(nj),F(ir,nj),F1(ir,nj)
+c     REAL*8 value
 
-      REAL*8 tice(nj)
+c     REAL*8 tice(nj)
 
 c---------Declaration of variables and arrays - NEW
 c    angv - angle velocity

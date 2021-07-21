@@ -46,7 +46,7 @@ C------------------------------------------------------------
 C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
       PARAMETER(nv=6,nw=0,ni=11,ir=121)
       REAL ug_in, vg_in ,z0_in, ustar_out, ds_in
-      REAL*8 albedo,rlat,rlat_in,slon,semis
+      REAL*8 albedo,rlat,rlat_in,slon,semis,p0
       REAL*8 jd ! Julian day - this is input
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
@@ -66,7 +66,7 @@ C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
       REAL zm(nj),zt(nj),dedzm(nj),dedzt(nj),wa(nv)
       REAL endTime,sol1,taur
       REAL pi,rpi
-      INTEGER ipvt(nv),i,j,k,l,ttd
+      INTEGER ipvt(nv),i,j,k,l
       REAL aconst,angle,emin,eps,blh,rlmin,rln,rls,rifc,wlo,zm0
       REAL fphi_m
       EXTERNAL fphi_m
@@ -74,17 +74,16 @@ C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
       CHARACTER*30 dname,fname
       DATA zout,zwind/0.25,0.5,1.,1.3/
       REAL t01,q01,qi01,blht,ss05,ssz1,ssz2
-      REAL*8 forcing
 
-      REAL dblht,dL
+c     REAL dblht,dL
       REAL qold(nj-1),qiold(nj-1)
-      REAL*8 dtvis(nj),tvisk(ir)
-      REAL*8 wc(ir,nj)
-      REAL*8 conc1(ir,nj),conc2(ir,nj),dlamb,dzetad,p0
-      REAL*8 zd(nj),rad(ir),scaled(ir),zmd(nj),F(ir,nj),F1(ir,nj)
-      REAL*8 value
+c     REAL*8 dtvis(nj),tvisk(ir)
+c     REAL*8 wc(ir,nj)
+c     REAL*8 conc1(ir,nj),conc2(ir,nj),dlamb,dzetad,p0
+c     REAL*8 zd(nj),rad(ir),scaled(ir),zmd(nj),F(ir,nj),F1(ir,nj)
+c     REAL*8 value
 
-      REAL*8 tice(nj)
+c     REAL*8 tice(nj)
 
 c---------Declaration of variables and arrays - NEW
 c    angv - angle velocity
@@ -123,7 +122,7 @@ c==================Set inputs
       p(1) = p0
 
 c===================Set constants
-      ttd=0                          !Initializing time step for dust subroutine
+c     ttd=0                          !Initializing time step for dust subroutine
 
       grav=9.807
       vk=.4
@@ -354,7 +353,7 @@ c       do i=nj,1,-1
 c          tice(i)=tice(i)+tice(i+1)
 c       end do
 c
-      ttd=ttd+ds
+c     ttd=ttd+ds
 
 c
 
