@@ -19,9 +19,10 @@ c  zm(j)-  mean varable nodes coordinates (u, v, t, q & qi)            *
 c  zt(j)-  turbulent quantities (e, ep, uw, vw, wt, wq, wqi, km & kh)  *
 c***********************************************************************
 
-      SUBROUTINE Integrate_NeXtSIM_ABL(albedo,ug,vg,slon,semis,rlat,z0,
-     & taur,p0,ds,ha,jd,
-     & nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,ustar)
+      SUBROUTINE Integrate_NeXtSIM_ABL(albedo,ug_in,vg_in,slon,semis,
+     &  rlat,z0_in, taur,p0,ds_in,ha,jd,
+     &  nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,
+     &  ustar_out)
  
 C-------------! Inputs needed from NeXtSIM are:
 C.  albedo - Surface albedo
@@ -44,14 +45,15 @@ C------------------------------------------------------------
       INTEGER nj,nv,nw,ir
 C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
       PARAMETER(nv=6,nw=0,ir=121)
+      REAL ug_in, vg_in ,z0_in, ustar_out, ds_in
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
-      COMMON /consta/alpha,betag,fc,grav,rl0,tg,vk,zero
+      COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       REAL betam,betah,gammam,gammah,pr
       COMMON /constb/betam,betah,gammam,gammah,pr
       REAL z0c,z0,zref,ztop,eta1,deta,rlb
       COMMON /constc/z0c,zref,ztop,eta1,deta,rlb
       REAL uw0,vw0,wt0,wq0,wqi0,ustar,tstar,qstar,qistar
-      COMMON /flxsrf/uw0,vw0,wt0,wq0,wqi0,tstar,qstar,qistar
+      COMMON /flxsrf/uw0,vw0,wt0,wq0,wqi0,ustar,tstar,qstar,qistar
       REAL a(nv,nv),alfa(nj,nv,nv),b(nv,nv),beta(nj,nv),c(nv,nv),
      1     d(nv),psi(nj,nv)
       REAL p(nj),q(nj),qi(nj),t(nj),theta(nj),tvis(nj),u(nj),v(nj)
@@ -107,6 +109,12 @@ c---------Some variables used in surface energy balance calculations
      1     s0c,sdec,sdir,sh,ss,sw,swi,fnqs
 c---------Function used for calculating saturated specific humidity
       EXTERNAL fnqs
+
+c==================Set inputs
+      ug = ug_in
+      vg = vg_in
+      z0 = z0_in
+
 c===================Set constants
       p0=p(1)                        ! Surface pressure for dust component
 
@@ -312,5 +320,9 @@ c
 c      ttd=ttd+ds
 
 c
+
+c========== Set ustar output
+      ustar_out = ustar
+
       return
       END

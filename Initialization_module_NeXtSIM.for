@@ -19,9 +19,10 @@ c  zm(j)-  mean varable nodes coordinates (u, v, t, q & qi)            *
 c  zt(j)-  turbulent quantities (e, ep, uw, vw, wt, wq, wqi, km & kh)  *
 c***********************************************************************
 
-      SUBROUTINE Initialize_NeXtSIM_ABL(albedo,ug,vg,slon,semis,rlat,z0,
-     & taur,p0,q0,t0,
-     & Nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,ustar)
+      SUBROUTINE Initialize_NeXtSIM_ABL(albedo,ug_in,vg_in,slon,semis,
+     &  rlat,z0_in,taur,p0,q0,t0,
+     &  nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,
+     &  ustar_out)
 
 C-------------! Inputs needed from NeXtSIM / ERA5 are:
 C.  albedo - Surface albedo
@@ -45,13 +46,14 @@ C-------------------------------------------------------------
 C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
       PARAMETER(nv=6,nw=0,ir=121)
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
-      COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,vk,zero
+      REAL ug_in, vg_in ,z0_in, ustar_out
+      COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       REAL betam,betah,gammam,gammah,pr
       COMMON /constb/betam,betah,gammam,gammah,pr
       REAL z0c,z0,zref,ztop,eta1,deta,rlb
-      COMMON /constc/z0c,zref,ztop,eta1,deta,rlb
+      COMMON /constc/z0c,z0,zref,ztop,eta1,deta,rlb
       REAL uw0,vw0,wt0,wq0,wqi0,ustar,tstar,qstar,qistar
-      COMMON /flxsrf/uw0,vw0,wt0,wq0,wqi0,tstar,qstar,qistar
+      COMMON /flxsrf/uw0,vw0,wt0,wq0,wqi0,ustar,tstar,qstar,qistar
       REAL a(nv,nv),alfa(nj,nv,nv),b(nv,nv),beta(nj,nv),c(nv,nv),
      1     d(nv),psi(nj,nv)
       REAL p(nj),q(nj),qi(nj),t(nj),theta(nj),tvis(nj),u(nj),v(nj)
@@ -109,6 +111,11 @@ c===================Set constants
       p(1)=p0       ! Initialise some surface values using inputs
       q(1)=q0
       t(1)=t0
+
+c==================Set inputs
+      ug = ug_in
+      vg = vg_in
+      z0 = z0_in
                 
       grav=9.807    ! Some more general constants 
       vk=.4         ! von Karman constant
@@ -194,7 +201,8 @@ c     open(11,file='TSOILINI.dat')
 c       call stempout(tsoil,zsoil,ni,11)
 c     close(11)
 
-
+c========== Set ustar output
+      ustar_out = ustar
 
       return
       END
