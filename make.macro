@@ -1,0 +1,10 @@
+# Local defenitions of FC, CXX, et al
+
+FC = gfortran
+CXX = g++
+
+# It's important to make sure all real values are 8 bit, because I was to lazy
+# to figure out which C variables to declare as double and which as single
+FFLAGS = -fdefault-real-8 -fdefault-double-8
+F90FLAGS = -fdefault-real-8 -fdefault-double-8
+
