@@ -20,7 +20,7 @@ c  zt(j)-  turbulent quantities (e, ep, uw, vw, wt, wq, wqi, km & kh)  *
 c***********************************************************************
 
       SUBROUTINE Integrate_NeXtSIM_ABL(albedo,ug_in,vg_in,slon,semis,
-     &  rlat,z0_in, taur,p0,ds_in,ha,jd,
+     &  rlat_in,z0_in, taur,p0,ds_in,ha,jd,
      &  nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,
      &  ustar_out)
  
@@ -42,16 +42,18 @@ C + nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,ustar from the in
 C------------------------------------------------------------
 
       IMPLICIT none
-      INTEGER nj,nv,nw,ir
+      INTEGER nj,nv,nw,ni,ir
 C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
-      PARAMETER(nv=6,nw=0,ir=121)
+      PARAMETER(nv=6,nw=0,ni=11,ir=121)
       REAL ug_in, vg_in ,z0_in, ustar_out, ds_in
+      REAL*8 albedo,rlat,rlat_in,slon,semis
+      REAL*8 jd ! Julian day - this is input
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       REAL betam,betah,gammam,gammah,pr
       COMMON /constb/betam,betah,gammam,gammah,pr
       REAL z0c,z0,zref,ztop,eta1,deta,rlb
-      COMMON /constc/z0c,zref,ztop,eta1,deta,rlb
+      COMMON /constc/z0c,z0,zref,ztop,eta1,deta,rlb
       REAL uw0,vw0,wt0,wq0,wqi0,ustar,tstar,qstar,qistar
       COMMON /flxsrf/uw0,vw0,wt0,wq0,wqi0,ustar,tstar,qstar,qistar
       REAL a(nv,nv),alfa(nj,nv,nv),b(nv,nv),beta(nj,nv),c(nv,nv),
@@ -75,6 +77,7 @@ C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
       REAL*8 forcing
 
       REAL dblht,dL
+      REAL qold(nj-1),qiold(nj-1)
       REAL*8 dtvis(nj),tvisk(ir)
       REAL*8 wc(ir,nj)
       REAL*8 conc1(ir,nj),conc2(ir,nj),dlamb,dzetad,p0
@@ -82,8 +85,6 @@ C     PARAMETER(nj=121,nv=6,nw=0,ir=121)
       REAL*8 value
 
       REAL*8 tice(nj)
-
-      REAL*8 albedo,rlat,slon,semis
 
 c---------Declaration of variables and arrays - NEW
 c    angv - angle velocity
@@ -100,10 +101,13 @@ c---------Specifying some atmospheric constants
       DATA cp,latent,rgas,tgamma,s00,sbc
      1    /1010.,2.50e6,287.,.007,1373,5.67e-8/        
    
+c---------Array used in soil temperature model
+      REAL dedzs(ni),tsoil(ni),zsoil(ni),dzeta
+c      DATA tsoil,zsoil/5*225.,.0,-.006,-.012,-.045,-.13/
+
 c--------- Data on celestial dynamics
       REAL nhrs,daysec,hoursec
       DATA nhrs,daysec/24,86165./   
-      REAL jd ! Julian day - this is input
 c---------Some variables used in surface energy balance calculations
       REAL albedo1,angv,ar,cc,cdec,cdh,dlw,dsw,e0,gflux,h0,ha,lw,rd,rho,
      1     s0c,sdec,sdir,sh,ss,sw,swi,fnqs
@@ -114,9 +118,12 @@ c==================Set inputs
       ug = ug_in
       vg = vg_in
       z0 = z0_in
+      rlat = rlat_in
+
+      p(1) = p0
 
 c===================Set constants
-      p0=p(1)                        ! Surface pressure for dust component
+      ttd=0                          !Initializing time step for dust subroutine
 
       grav=9.807
       vk=.4
@@ -133,6 +140,8 @@ c===================Set constants
       hoursec=daysec/nhrs
       fc=2.*angv*SIN(rlat*rpi)
 
+      rlat=0.-rlat
+
 c---------Constants used in similarity functions
         betam =5.0                   ! Others : 6.00      4.7      5.0
         betah =5.0                   !          8.21      4.7      5.0
@@ -142,10 +151,7 @@ c---------Constants used in similarity functions
 c===================Specify some constants associated with the closure
 
         alpha=.3
-        betag=grav/t(1)
-        rifc=1./betam
-        rl0=100.           !300
-c        rl0=.00027*ug/fc
+      rifc=1./betam
 
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 c Define initial dust properties                                                                    !
@@ -161,6 +167,10 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
          tvis(i)=taur*(EXP(0.-(zm(i)/8786)))
       end do
 
+      do i=2,nj
+         qold(i)=q(i)
+         qiold(i)=qi(i)
+      end do
 
 c---------Initialization array used in solving matrix
       do 80 l=1,nv
@@ -173,7 +183,6 @@ c---------Initialization array used in solving matrix
         beta(i,l)=zero
  90   continue
         tg=theta(nj)
-
 c---------Calculating Boundary-Layer Height
               ss05=.05*SQRT(uw(1)*uw(1)+vw(1)*vw(1))
               ssz1=0.
@@ -190,19 +199,20 @@ c                ssz2=wt(j)
  201    CONTINUE
 
 c---------Calculate celestial mechanics for the current solar day
+	ar=slon*rpi                   ! Areocentric longitude in radians
         ar=2*pi*(jd+311)/365          ! Model begins 9th November, Pielke 1984 p211
         rd=1.000110+0.034221*COS(ar)+0.001280*SIN(ar)
      1      +0.000719*COS(2.*ar)+0.000077*SIN(2.*ar)
 c	rd=3.03409791/2.+.046215*COS(ar)-.005188*COS(2.*ar)
 c     1                  +.134208*SIN(ar)+.004177*SIN(2.*ar)
-	ar=slon*rpi                             ! Areocentric longitude in radians
+        ar=slon*rpi
 	sdec=.3979486*SIN(ar)                   ! sin(sun decline angle)
 	cdec=SQRT(1.-sdec*sdec)                 ! cos(sun decline angle)
 	s0c=1373.*rd                            ! current solar flux at TOA
-	!  slon=slon+.986                       ! Areocentric longitude for next solar day
+c	  slon=slon!+.986!.538      ! Areocentric longitude for next solar day
 	cc=cdec*COS(rlat*rpi)
 	ss=sdec*SIN(rlat*rpi)
-
+c
 c---------Calculating surface fluxes using Monin-Obukhov similarity
     !      ha=(1.*jm/nmts+jh-1.)/24.*2.*pi-pi     ! Hour angle in radians
 	  sh=cc*COS(ha)+ss                       ! Sin of solar height angle
@@ -222,6 +232,10 @@ c---------Calculating surface fluxes using Monin-Obukhov similarity
 c---------theory. It is applied between the surface and gridpoint zm(nw)
 c       CALL subsrf(u,v,theta,q,qi,dedzt,zm,zt,e,ep,kh,km,rif,rlmo,tl,
 c    1              tld,uw,vw,wt,wq,wqi,rifc,wlo,nj,nw)
+      do i=2,nj
+         q(i)=qold(i)
+         qi(i)=qiold(i)
+      end do
 c---------Calculating finite difference matrix and lu decomposition
         CALL coeffi(a,alfa,b,beta,c,d,e,ep,p,q,qi,theta,u,v,uw,vw,dedzm,
      1           dedzt,rnet,kh,km,tld,zm,wa,wlo,ipvt,nj,nv,nw)
@@ -237,6 +251,14 @@ c---------Updating the solution
           e(j)    =MAX(psi(j,6),emin)
           ep(j)=(alpha*e(j))**1.5/tld(j)
  110    CONTINUE
+c
+      do i=2,nj
+         if (zm(j).gt.10000) then
+            e(j)=emin
+         end if
+         q(i)=qold(i)
+         qi(i)=qiold(i)
+      end do
 c---------Converting potential temperature to the temperature
 	do 120 j=1,nj
 	  t(j)=theta(j)*(p(j)/p(1))**(rgas/cp)
@@ -245,7 +267,16 @@ c---------Calculating turbulent length scales, eddy diffusivity & fluxes
         CALL sublkf(u,v,theta,q,qi,dudz,dvdz,dthdz,dedzt,zm,zt,e,ep,
      1              kh,km,rif,rlmo,tl,tld,uw,vw,wt,wq,wqi,rifc,wlo,
      2              nj,nw)
-
+c          do i=1,nj
+c             ustarp(i)=(uw(i)*uw(i)+vw(i)*vw(i))**.25
+c             tstarp(i)=-wt(i)/ustarp(i)
+c             qstarp(i)=-wq(i)/ustarp(i)
+c             qistarp(i)=-wqi(i)/ustarp(i)
+c          end do
+      do i=2,nj
+         q(i)=qold(i)
+         qi(i)=qiold(i)
+      end do
           ustar=(uw(1)*uw(1)+vw(1)*vw(1))**.25
           tstar=-wt(1)/ustar
           qstar=-wq(1)/ustar
@@ -261,7 +292,10 @@ c==============and surface fluxes dlw, dsw, sdir
 	  albedo1=albedo+.1*(1.-sh)   ! albedo is 10% higher for low sun
         CALL radia(p,q,t,tvis,hsw,hlw,fu,fd,su,sd,hu,hd,nj,
      1             s0c,sh,albedo1,cp,grav,sbc,semis,dlw,dsw,sdir)
-
+      do i=2,nj
+         q(i)=qold(i)
+         qi(i)=qiold(i)
+      end do
 c---------Converting Rnet from T to potential temperature
 	  do j=2,nj-1
             turbhr(j)=(t(j)-turbhr(j))/ds ! turbulent heating for output
@@ -272,19 +306,21 @@ c            rnet(j)=(p(1)/p(j))**(rgas/cp)*rnet(j)      ! used in COEFF
 c==============Calculating waterice cloud formation/sublimation
           qi(1)=qi(2)
         CALL swcond(p,q,qi,t,cp,latent,nj)
-
+      do i=2,nj
+         q(i)=qold(i)
+         qi(i)=qiold(i)
+      end do
 c==============Calculating ground energy fluxes
 c---------Computing short wave irradiation on slant ground
         CALL swisg(dsw,ha,rlat,sdec,sdir,sh,swi)
-	  lw=dlw-sbc*semis*t(1)**4           ! LW net radiation at surface
-          sw=(1.-albedo1)*swi                ! sw net rad at slant sfc, w/m2
+	  lw=dlw-sbc*semis*t(1)**4         ! LW net radiation at surface
+          sw=(1.-albedo1)*swi            ! sw net rad at slant sfc, w/m2
 	    rho=100.*(p(1)+p(2))/rgas/(t(1)+t(2))
 
 	  h0=rho*cp*wt(1)                    ! sfc heat flux w/m2
           e0=rho*latent*wq(1)                ! sfc latent heat flux w/m2
-
-          gflux=lw+sw-h0-e0                  ! net surface energy flux
-
+c
+          gflux=lw+sw-h0-e0                    ! net surface energy flux
 c---------Calculating Boundary-Layer Height
               ss05=.05*SQRT(uw(1)*uw(1)+vw(1)*vw(1))
               ssz1=0.
@@ -301,10 +337,11 @@ c                ssz2=wt(j)
  202    CONTINUE
 
 c++++++++++++++Calculating soil temperature
-c       CALL soiltdm(dedzs,tsoil,zsoil,dzeta,gflux,ds)
-c       t(1)=tsoil(1)
-c       betag=grav/t(1)
+        CALL soiltdm(dedzs,tsoil,zsoil,dzeta,gflux,ds)
+        t(1)=tsoil(1)
 
+          betag=grav/t(1)
+c
 c++++++++++++++ Calculating dust dynamics
 c      CALL Dust(ir,nj,ustar,zm,ttd,tvis,Conc1,Km,t,taur
 c     1     ,rad,zd,zmd,scaled,dzetad,dlamb,z0,ds,F1,grav,p0,tvisk,value)
@@ -317,7 +354,7 @@ c       do i=nj,1,-1
 c          tice(i)=tice(i)+tice(i+1)
 c       end do
 c
-c      ttd=ttd+ds
+      ttd=ttd+ds
 
 c
 

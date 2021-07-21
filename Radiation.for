@@ -390,8 +390,9 @@ c     1         .0192,.0278,.0392,.0576,.0719,.086,.104,.117,.13,.147,
 c     2         .159,.17,.186,.197,.207/
 c
       IF( (x.lt.-7.3).or.(x.gt.3.6) ) THEN     !gt.3.3
-        write(6,'(10x,"The log of optical path is out of the date range
-     1...",f10.5)') x
+        write(6,'(10x,
+     1 "subfec: The log of optical path is out of the data range...",
+     2 f10.5)') x
 c          pause
         IF(x.gt.3.6) THEN
 	  y=yem(nn)+(yem(nn)-yem(nn-1))*(x-xop(nn))/(xop(nn)-xop(nn-1))
@@ -429,8 +430,9 @@ c
      3         .316,.373,.418,.465,.536,.600,.677,.798,.888,.954,.987/
 c
       IF( (x.lt.-31.).or.(x.gt.1.7) ) THEN     !gt.3.3
-        write(6,'(10x,"The log of optical path is out of the date range
-     1...",f10.5)') x
+        write(6,'(10x,
+     1 "subfec2: The log of optical path is out of the data range...",
+     2 f10.5)') x
 c          pause
         IF(x.gt.1.7) THEN
 	  y=yem(nn)+(yem(nn)-yem(nn-1))*(x-xop(nn))/(xop(nn)-xop(nn-1))
