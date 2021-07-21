@@ -220,8 +220,8 @@ c---------Converting temperature to potential temperature
 
 c---------Calculating surface fluxes using Monin-Obukhov similarity
 c---------theory. It is applied between the surface and gridpoint zm(nw)
-        CALL subsrf(u,v,theta,q,qi,dedzt,zm,zt,e,ep,kh,km,rif,rlmo,tl,
-     1              tld,uw,vw,wt,wq,wqi,rifc,wlo,nj,nw)
+c       CALL subsrf(u,v,theta,q,qi,dedzt,zm,zt,e,ep,kh,km,rif,rlmo,tl,
+c    1              tld,uw,vw,wt,wq,wqi,rifc,wlo,nj,nw)
 c---------Calculating finite difference matrix and lu decomposition
         CALL coeffi(a,alfa,b,beta,c,d,e,ep,p,q,qi,theta,u,v,uw,vw,dedzm,
      1           dedzt,rnet,kh,km,tld,zm,wa,wlo,ipvt,nj,nv,nw)
