@@ -41,9 +41,9 @@ $(OBJ_F90): $(OBJ_DIR)/%.o : %.f90
 	$(FC) -c $(F90FLAGS) $< -o $@
 
 tester_c.x: tester.cpp $(LIB)
-	$(CXX) $(CXXFLAGS) -L./lib -learthabl $< -o $@
+	$(CXX) $(CXXFLAGS) $< -L./lib -learthabl -o $@
 
 tester_f.x: tester.f90 $(LIB)
-	$(FC) $(F90FLAGS) -L./lib -learthabl $< -o $@
+	$(FC) $(F90FLAGS) $< -L./lib -learthabl -o $@
 
 test: tester_f.x tester_c.x

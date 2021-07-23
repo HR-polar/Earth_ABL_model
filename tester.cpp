@@ -103,7 +103,7 @@ int main(int argc, char** argv)
 
     std::cout << "Step done\n";
 
-    for ( auto it=u.begin(); it!=u.end(); ++it )
+    for ( std::vector<double>::iterator it=u.begin(); it!=u.end(); ++it )
         std::cout << *it << " ";
 
     std::cout << std::endl;
