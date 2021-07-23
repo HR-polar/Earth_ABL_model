@@ -38,10 +38,9 @@ c----------------------------------------------------------------------=
 c   To solve the diffusion equation at FIVE levels within the ground   =
 c              by using the implicit Crank-Nicholson scheme            =
 c=======================================================================
-      SUBROUTINE soiltdm(dedzs,tsoil,zsoil,dzeta,gflux,dt)
+      SUBROUTINE soiltdm(dedzs,tsoil,zsoil,dzeta,gflux,dt,ni)
       IMPLICIT none
       INTEGER i,ni
-      PARAMETER (ni=11)
       REAL dedzs(ni),tsoil(ni),zsoil(ni),dzeta,gflux,dt
 c---------Internal variables
       REAL a(ni),b(ni),c(ni),r(ni)
@@ -77,8 +76,7 @@ c      c(i)=-rdif*rlam/rhoc*zzp
 c      r(i)=tsoil(i)/dt+(1.-rdif)*rlam/rhoc*((tsoil(i+1)-tsoil(i))*zzp
 c     1                                     -(tsoil(i)-tsoil(i-1))*zzm)
       a(i)=-rdif*rlam/rhoc*dedzs(i)/dzeta2*.5*(dedzs(i)+dedzs(i-1))
-      b(i)=1./dt+rdif*rlam/rhoc*dedzs(i)/dzeta2*.5*( dedzs(i)+dedzs(i-1)
-     1                                              +dedzs(i)+dedzs(i+1)
+      b(i)=1./dt+rdif*rlam/rhoc*dedzs(i)/dzeta2*.5*( dedzs(i)+dedzs(i+1)
      2                                              )
       c(i)=-rdif*rlam/rhoc*dedzs(i)/dzeta2*.5*(dedzs(i)+dedzs(i+1))
       r(i)=tsoil(i)/dt+(1.-rdif)*rlam/rhoc*dedzs(i)/dzeta2*
@@ -253,7 +251,9 @@ c======================================================================*
       INTEGER ni,i
       REAL dedzs(ni),tsoil(ni),zsoil(ni),dzeta,t0,z0
 c
-        zsoil(1)=0.
+      dzeta=alog(.2/z0+1.)/(ni-1.)
+
+      zsoil(1)=0.
       DO i=2,ni
         zsoil(i)=-z0*(EXP(dzeta*(i-1.))-1.)
       ENDDO

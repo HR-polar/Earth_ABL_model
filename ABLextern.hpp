@@ -45,7 +45,8 @@ extern "C"
             double *,  // wqi
             double *,  // km
             double *,  // kh
-            double *); // ustar
+            double *,  // ustar
+            double *); // tld
 
     void stepabl_c(
             // inputs:
@@ -81,7 +82,32 @@ extern "C"
             double *,  // wqi
             double *,  // km
             double *,  // kh
-            double *); // ustar
+            double *,  // ustar
+            double *,  // gflux
+            double *); // tld
+
+    void subsoilt_c(
+            // Outputs:
+            double *,        // dedzs
+            double *,        // tsoil
+            double *,        // zsoil
+            // Inputs:
+            const double *,  // dzeta
+            const double *,  // t0
+            const double *,  // z0
+            const int    *); // ni
+
+    void soiltdm_c(
+            // Input:
+            const double *,  // dedzs
+            // In-Out
+            double       *,  // tsoil
+            // Inputs:
+            const double *,  // zsoil
+            const double *,  // dzeta
+            const double *,  // gflux
+            const double *,  // ds
+            const int    *); //ni
 }
 
 #endif

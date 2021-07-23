@@ -6,7 +6,7 @@
 
 int main(int argc, char** argv)
 {
-    // Initial and forcing values
+    // Initial and forcing values - ABL
     const double albedo = 0.367;
     const double ug     = 5.;
     const double vg     = 0.;
@@ -23,7 +23,7 @@ int main(int argc, char** argv)
     const double jd     = 1;
     const int    nj     = 241;
 
-    // Prognostic variables
+    // Prognostic variables - ABL
     std::vector<double> dedzm(nj);
     std::vector<double> dedzt(nj);
     std::vector<double> zm(nj);
@@ -42,28 +42,69 @@ int main(int argc, char** argv)
     std::vector<double> wqi(nj);
     std::vector<double> km(nj);
     std::vector<double> kh(nj);
+    std::vector<double> tld(nj);
     double ustar;
+
+    // Soil model variables
+    const int ni = 11;
+
+    std::vector<double> dedzs(ni);
+    std::vector<double> tsoil(ni);
+    std::vector<double> zsoil(ni);
+    double dzeta, gflux;
 
     // Initialise
     // Call the C/Fortran function
     // We always use the addres - even for the inputs - because Fortan passes by reference.
     initabl_c(&albedo, &ug, &vg, &slon, &semis, &rlat, &z0, &taur, &p0, &q0, &t0, &nj,
             &dedzm[0], &dedzt[0], &zm[0], &zt[0], &u[0], &v[0], &t[0], &q[0], &qi[0], &e[0], &ep[0], &uw[0], &vw[0], &wt[0],
-            &wq[0], &wqi[0], &km[0], &kh[0], &ustar);
+            &wq[0], &wqi[0], &km[0], &kh[0], &ustar, &tld[0]);
 
+    // Initialise the soil model
     std::cout << "Init done\n";
+    subsoilt_c(&dedzs[0], &tsoil[0], &zsoil[0], &dzeta, &t[0], &z0, &ni);
 
     // Run
     // Call the C/Fortran function
     // We always use the addres - even for the inputs - because Fortan passes by reference.
     for ( int i=0; i<100; ++i)
     {
-        std::cout << i << std::endl;
-
+        // ABL
         stepabl_c(&albedo, &ug, &vg, &slon, &semis, &rlat, &z0, &taur, &p0, &ds, &ha, &jd, &nj,
                 &dedzm[0], &dedzt[0], &zm[0], &zt[0], &u[0], &v[0], &t[0], &q[0], &qi[0], &e[0], &ep[0], &uw[0], &vw[0], &wt[0],
-                &wq[0], &wqi[0], &km[0], &kh[0], &ustar);
+                &wq[0], &wqi[0], &km[0], &kh[0], &ustar, &gflux, &tld[0]);
+
+        // Soil
+        soiltdm_c(&dedzs[0], &tsoil[0], &zsoil[0], &dzeta, &gflux, &ds, &ni);
+        t[0]=t0; //tsoil[0];
+
+        std::cout << i
+            << "\t" << dedzm[0]
+            << "\t" << dedzt[0]
+            << "\t" << zm[0]
+            << "\t" << zt[0]
+            << "\t" << u[0]
+            << "\t" << v[0]
+            << "\t" << t[0]
+            << "\t" << q[0]
+            << "\t" << qi[0]
+            << "\t" << e[0]
+            << "\t" << ep[0]
+            << "\t" << uw[0]
+            << "\t" << vw[0]
+            << "\t" << wt[0]
+            << "\t" << wq[0]
+            << "\t" << wqi[0]
+            << "\t" << km[0]
+            << "\t" << kh[0]
+            << "\t" << ustar
+            << "\t" << gflux << std::endl;
     }
 
     std::cout << "Step done\n";
+
+    for ( auto it=u.begin(); it!=u.end(); ++it )
+        std::cout << *it << " ";
+
+    std::cout << std::endl;
 }

@@ -22,7 +22,7 @@ c***********************************************************************
       SUBROUTINE Integrate_NeXtSIM_ABL(albedo,ug_in,vg_in,slon,semis,
      &  rlat_in,z0_in, taur,p0,ds_in,ha,jd,
      &  nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,
-     &  ustar_out)
+     &  ustar_out, gflux,tld)
  
 C-------------! Inputs needed from NeXtSIM are:
 C.  albedo - Surface albedo
@@ -99,10 +99,6 @@ c---------Specifying some atmospheric constants
       REAL cp,latent,rgas,tgamma,s00,sbc
       DATA cp,latent,rgas,tgamma,s00,sbc
      1    /1010.,2.50e6,287.,.007,1373,5.67e-8/        
-   
-c---------Array used in soil temperature model
-      REAL dedzs(ni),tsoil(ni),zsoil(ni),dzeta
-c      DATA tsoil,zsoil/5*225.,.0,-.006,-.012,-.045,-.13/
 
 c--------- Data on celestial dynamics
       REAL nhrs,daysec,hoursec
@@ -118,6 +114,7 @@ c==================Set inputs
       vg = vg_in
       z0 = z0_in
       rlat = rlat_in
+      ds = ds_in
 
       p(1) = p0
 
@@ -181,7 +178,6 @@ c---------Initialization array used in solving matrix
       do 90 i=1,nj
         beta(i,l)=zero
  90   continue
-        tg=theta(nj)
 c---------Calculating Boundary-Layer Height
               ss05=.05*SQRT(uw(1)*uw(1)+vw(1)*vw(1))
               ssz1=0.
@@ -226,6 +222,7 @@ c---------Converting temperature to potential temperature
           theta(j)=t(j)*(p(1)/p(j))**(rgas/cp)
         enddo
           q(1)=0.01                             ! specified constant ground wetness to q(1)
+        tg=theta(nj)
 
 c---------Calculating surface fluxes using Monin-Obukhov similarity
 c---------theory. It is applied between the surface and gridpoint zm(nw)
@@ -334,10 +331,6 @@ c                ssz2=wt(j)
                 ssz1=ssz2
             enddo
  202    CONTINUE
-
-c++++++++++++++Calculating soil temperature
-        CALL soiltdm(dedzs,tsoil,zsoil,dzeta,gflux,ds)
-        t(1)=tsoil(1)
 
           betag=grav/t(1)
 c

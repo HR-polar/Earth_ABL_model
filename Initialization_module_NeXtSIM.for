@@ -13,7 +13,6 @@ c             psi(j,4) = q (j) specific humidity                       *
 c             psi(j,5) = qi(j) icewater mixing ratio                   *
 c             psi(j,6) = e (j) turbulent kinetic energy (TKE)          *
 c----------------------------------------------------------------------*
-c  ni   -  number of vertical grid points for soil temperature model   *
 c  nj   -  number of vertical grid points for PBL model                *
 c  nv   -  number of variables                                         *
 c  zm(j)-  mean varable nodes coordinates (u, v, t, q & qi)            *
@@ -23,7 +22,7 @@ c***********************************************************************
       SUBROUTINE Initialize_NeXtSIM_ABL(albedo,ug_in,vg_in,slon,semis,
      &  rlat_in,z0_in,taur,p0,q0,t0,
      &  nj,dedzm,dedzt,zm,zt,u,v,t,q,qi,e,ep,uw,vw,wt,wq,wqi,km,kh,
-     &  ustar_out)
+     &  ustar_out,tld)
 
 C-------------! Inputs needed from NeXtSIM / ERA5 are:
 C.  albedo - Surface albedo
@@ -43,9 +42,9 @@ C.  nj,dedzm,dedzt,zm,zt,	u,v,t,q,qi,	e,ep,uw,vw,wt,wq,wqi,km,kh,ustar
 C-------------------------------------------------------------
 
       IMPLICIT none
-      INTEGER nj,nv,nw,ni,ir
+      INTEGER nj,nv,nw,ir
 C     PARAMETER(nj=241,nv=6,nw=0,ni=11,ir=121)
-      PARAMETER(nv=6,nw=0,ni=11,ir=121)
+      PARAMETER(nv=6,nw=0,ir=121)
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       REAL*8 ug_in, vg_in ,z0_in, ustar_out,q0,t0
       REAL*8 albedo,rlat_in,rlat,slon,semis,p0
@@ -103,9 +102,6 @@ c---------Specifying the location and the constants
       DATA cp,latent,rgas,tgamma,s00,sbc
      1    /1010.,2.50e6,287.,.007,1373,5.67e-8/     
 
-c---------Array used in soil temperature model
-      REAL dedzs(ni),tsoil(ni),zsoil(ni),dzeta
-c      DATA tsoil,zsoil/5*225.,.0,-.006,-.012,-.045,-.13/
 c---------Integer variables used for the do-loops
       INTEGER jd,jh,jm,nds,nhrs,nmts,j10,jmout,jd10
       REAL daysec,hoursec
@@ -190,9 +186,6 @@ c---------Calculating initial profiles
      1      tl,tld,rnet,dedzt,zm,zt,aconst,angle,cp,rgas,rpi,tgamma,nj)
           wlo=-vk*betag*wt(1)/ustar**3
 c
-          dzeta=alog(.2/z0+1.)/(ni-1.)
-        call subsoilt(dedzs,tsoil,zsoil,dzeta,t(1),z0,ni)
-
       do i=2,nj
          qold(i)=q(i)
          qiold(i)=qi(i)
