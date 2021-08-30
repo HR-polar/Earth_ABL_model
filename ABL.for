@@ -37,7 +37,7 @@ c***********************************************************************
 !      REAL(KIND=8), DIMENSION(:), ALLOCATABLE ::
 !    1       rlat
 
-      INTEGER :: ngrid, igrid
+      INTEGER :: ngr, mgr, igr, jgr
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Inputs from forcing files
@@ -45,31 +45,31 @@ c***********************************************************************
 ! First are "Select Pressure levels: 850hPa and upwards (to ABL model
 ! top – check Pressure at highest level, default was 30km and 10hPa):
 ! Temperature; U-component of wind; V-component of wind"
-      REAL(KIND=8), DIMENSION(:,:), ALLOCATABLE :: 
+      REAL(KIND=8), DIMENSION(:,:,:), ALLOCATABLE ::
      1      u_in, v_in, t_in
 ! Now "Full column (all pressure levels): Specific humidity; Specific
 ! cloud liquid content; Specific cloud ice water content"
-      REAL(KIND=8), DIMENSION(:,:), ALLOCATABLE ::
+      REAL(KIND=8), DIMENSION(:,:,:), ALLOCATABLE ::
      1      sp_cloud_liquid, sp_cloud_ice
 ! Finally "Surface field: Mean surface downward long-wave radiation
-! flux; Mean surface downward short-wave radiation flux 
-      REAL(KIND=8), DIMENSION(:), ALLOCATABLE ::
+! flux; Mean surface downward short-wave radiation flux
+      REAL(KIND=8), DIMENSION(:,:), ALLOCATABLE ::
      1      sdlw, sdsw, q0, t0
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Prognostic variables
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Full column
-      REAL(KIND=4), DIMENSION(:,:), ALLOCATABLE ::
+      REAL(KIND=4), DIMENSION(:,:,:), ALLOCATABLE ::
      1      u, v, t, q, qi, e, ep, uw, vw, wt, wq, wqi, km, kh, p, tld,
      2      qold, qiold
 
 ! Surface only
-      REAL(KIND=4), DIMENSION(:), ALLOCATABLE ::
+      REAL(KIND=4), DIMENSION(:,:), ALLOCATABLE ::
      1      ustar_2D
 
 ! Soil model
-      REAL(KIND=4), DIMENSION(:,:), ALLOCATABLE ::
+      REAL(KIND=4), DIMENSION(:,:,:), ALLOCATABLE ::
      1      tsoil
 
 
@@ -151,32 +151,35 @@ c---------Function used for calculating saturated specific humidity
 
 c===================Allocate arrays
 ! neXtSIM link: Grid size and info will be read in from file
-      ngrid = 1
+      mgr = 1
+      ngr = 1
 
 ! Inputs from forcing files
-      ALLOCATE(t_in(ngrid,nj))
+      ALLOCATE(t_in(mgr,ngr,nj))
       ALLOCATE(u_in, v_in, sp_cloud_liquid, sp_cloud_ice, mold=t_in)
 
-      ALLOCATE(sdlw(ngrid))
+      ALLOCATE(sdlw(mgr,ngr))
       ALLOCATE(sdsw, q0, t0, mold=sdlw)
 
 ! Prognostic variables
-      ALLOCATE(ustar_2D(ngrid))
-      ALLOCATE(tld(ngrid,nj))
+      ALLOCATE(ustar_2D(mgr,ngr))
+      ALLOCATE(tld(mgr,ngr,nj))
       ALLOCATE(u, v, t, q, qi, e, ep, uw, vw, wt, wq, wqi, km, kh, p,
      1  qold, qiold, mold = tld)
 
 ! Soil model
-      ALLOCATE(tsoil(ngrid,ni))
+      ALLOCATE(tsoil(mgr,ngr,ni))
 
 c===================Set constants
       ttd=0                          !Initializing time step for dust subroutine
       taur=0.                     !Define initial surface(1m) optical depth (scales linearly with Qext(lambda))
-      do igrid=1,ngrid
-        p(igrid,1) = 1015.
-        q(igrid,1) = 0.01
-        qi(igrid,1) = 0.
-        t(igrid,1) = 300.
+      do igr=1,mgr
+        do jgr=1,ngr
+          p(igr,jgr,1) = 1015.
+          q(igr,jgr,1) = 0.01
+          qi(igr,jgr,1) = 0.
+          t(igr,jgr,1) = 300.
+        end do
       end do
 
       grav=9.807
@@ -268,11 +271,12 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       end do
 
 c---------Calculating initial profiles
-      do igrid = 1, ngrid
+      do igr = 1, mgr
+      do jgr = 1, ngr
 
 ! betag is in the consta common block and needs to be updated for every
 ! grid point and at every time step
-        betag=grav/t(igrid,1)
+        betag=grav/t(igr,jgr,1)
 
 c---------Calculating initial u* etc from Geostrophic Drag Laws
 ! neXtSIM link: fc is no longer a constant!
@@ -280,18 +284,19 @@ c---------Calculating initial u* etc from Geostrophic Drag Laws
 
 ! betag is in the flxsrf common block and needs to be updated for every
 ! grid point and at every time step
-        ustar_2D(igrid) = ustar
+        ustar_2D(igr,jgr) = ustar
 
-        call subprof(p(igrid,:),q(igrid,:),qi(igrid,:),tvis,t(igrid,:),
-     1      theta,u(igrid,:),v(igrid,:),e(igrid,:),ep(igrid,:),
-     2      uw(igrid,:),vw(igrid,:),wq(igrid,:),wqi(igrid,:),
-     3      wt(igrid,:),kh(igrid,:),km(igrid,:),
-     4      tl,tld(igrid,:),rnet,dedzt,zm,zt,aconst,angle,cp,rgas,rpi,
+        call subprof(p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),tvis,
+     1      t(igr,jgr,:),theta,u(igr,jgr,:),v(igr,jgr,:),e(igr,jgr,:),
+     2      ep(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),wq(igr,jgr,:),
+     3      wqi(igr,jgr,:),wt(igr,jgr,:),kh(igr,jgr,:),km(igr,jgr,:),
+     4      tl,tld(igr,jgr,:),rnet,dedzt,zm,zt,aconst,angle,cp,rgas,rpi,
      5      tgamma,nj)
 
-!       wlo=-vk*betag*wt(igrid,1)/ustar(igrid)**3
+!       wlo=-vk*betag*wt(igr,jgr,1)/ustar(igr,jgr)**3
 c
-        call subsoilt(dedzs,tsoil(igrid,:),zsoil,dzeta,t(igrid,1),z0,ni)
+        call subsoilt(dedzs,tsoil(igr,jgr,:),zsoil,dzeta,t(igr,jgr,1),
+     1      z0,ni)
 
 c---------Output initial data and profiles
         open(11,file='CONSTANT.dat')
@@ -301,22 +306,23 @@ c---------Output initial data and profiles
         write(11,'(/,"   blh,nj,nv     =",e14.6,2i10)') ztop,nj,nv
         close(11)
         open(11,file='MEAN-INI.dat')
-        call meanout(zm,zt,u(igrid,:),v(igrid,:),t(igrid,:),theta,
-     1      p(1,:),q(igrid,:),qi(igrid,:),z0,nj,11)
+        call meanout(zm,zt,u(igr,jgr,:),v(igr,jgr,:),t(igr,jgr,:),theta,
+     1      p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),z0,nj,11)
         close(11)
         open(12,file='TURB-INI.dat')
-        call turbout(zm,zt,e(igrid,:),uw(igrid,:),vw(igrid,:),
-     1      wt(igrid,:),wq(igrid,:),wqi(igrid,:),ep(igrid,:),
-     2      km(igrid,:),kh(igrid,:),tld(igrid,:),z0,nj,12)
+        call turbout(zm,zt,e(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),
+     1      wt(igr,jgr,:),wq(igr,jgr,:),wqi(igr,jgr,:),ep(igr,jgr,:),
+     2      km(igr,jgr,:),kh(igr,jgr,:),tld(igr,jgr,:),z0,nj,12)
         close(12)
         open(11,file='TSOILINI.dat')
-        call stempout(tsoil(igrid,:),zsoil,ni,11)
+        call stempout(tsoil(igr,jgr,:),zsoil,ni,11)
         close(11)
 
         do i=2,nj
-         qold(igrid,i)=q(igrid,i)
-         qiold(igrid,i)=qi(igrid,i)
+         qold(igr,jgr,i)=q(igr,jgr,i)
+         qiold(igr,jgr,i)=qi(igr,jgr,i)
         end do
+      end do
       end do
 
 c---------Initialization array used in solving matrix
@@ -339,9 +345,9 @@ c---------Outputing iteration information
 c---------Open files for data output during the time integration
       OPEN(31,FILE='SRFV-ALL.dat')
       WRITE(31,'(""" Time,E0,u*,uw,vw,wt,km,kh,1/LO,T0,blht""")')
-      WRITE(31,'(11e14.6)') 0.,e(igrid,:1),ustar_2D(igrid),uw0,vw0,wt0,
-     1      km(igrid,1),kh(igrid,1),
-     2      -vk*betag*wt0/ustar_2D(igrid)**3,t(igrid,1),blht
+      WRITE(31,'(11e14.6)') 0.,e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,
+     1      wt0,km(igr,jgr,1),kh(igr,jgr,1),
+     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,t(igr,jgr,1),blht
 
       OPEN(29,FILE='SV6-8.dat')
       WRITE(29,'(""" Time,E0,u*,wt,T0,T1,U2,V2,dlw,dsw,lw,sw,h0,e0,GFlux
@@ -354,14 +360,17 @@ c===================The Beginning of the Time Integration
       do 9999 jd=1,nds                                       ! Earth days
       jd10=jd/10
 
-      do igrid=1,ngrid
+      do igr = 1, mgr
+      do jgr = 1, ngr
 c---------Calculating Boundary-Layer Height
 c -> This is a diagnostic (blht)
-        ss05=.05*SQRT(uw(igrid,1)*uw(igrid,1)+vw(igrid,1)*vw(igrid,1))
+        ss05=.05*SQRT(uw(igr,jgr,1)*uw(igr,jgr,1)
+     1          +vw(igr,jgr,1)*vw(igr,jgr,1))
         ssz1=0.
 c        ss05=wt(1)
         do 201 j=2,nj-1
-          ssz2=.5*SQRT(uw(igrid,j)*uw(igrid,j)+vw(igrid,j)*vw(igrid,j))
+          ssz2=.5*SQRT(uw(igr,jgr,j)*uw(igr,jgr,j)
+     1          +vw(igr,jgr,j)*vw(igr,jgr,j))
 c          ssz2=wt(j)
           IF( (ss05.le.ssz1).and.(ss05.ge.ssz2) ) THEN
             blht=zt(j-1)+(zt(j)-zt(j-1))*(ss05-ssz1)/(ssz2-ssz1)
@@ -378,12 +387,13 @@ c---------Open file for data output during time integrations
      1      //CHAR(48+jd-jd10*10)//'.dat')
         WRITE(32,'(""" Time,E0,u*,uw,vw,wt,km,kh,1/LO,blh,T1,T2,tl1,tl
      1 d1,U2,V2,SQRT(U2^2+V2^2),forcing""")')
-        WRITE(32,'(20e14.6)') 0.,e(igrid,:1),ustar_2D(igrid),uw0,vw0,
-     1      wt0,km(igrid,1),kh(igrid,1),
-     1 -vk*betag*wt0/ustar_2D(igrid)**3,blht,theta(1),theta(2),tl(1),
-     2      tld(igrid,1),
-     3      u(igrid,2),v(igrid,2),
-     4      SQRT(u(igrid,2)*u(igrid,2)+v(igrid,2)*v(igrid,2)),forcing
+        WRITE(32,'(20e14.6)') 0.,e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,
+     1      vw0,wt0,km(igr,jgr,1),kh(igr,jgr,1),
+     1 -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,theta(1),theta(2),tl(1),
+     2      tld(igr,jgr,1),
+     3      u(igr,jgr,2),v(igr,jgr,2),
+     4      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
+     5      forcing
 
         OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
      1      '.dat')
@@ -392,9 +402,9 @@ c---------Open file for data output during time integrations
      1      //CHAR(48+jd-jd10*10)//'.dat')
         WRITE(38,'(""" Time,Eta,Zm,U,V,Wind,T,Theta""")')
         do j=1,nj
-          WRITE(38,'(19e14.6)') 0.,deta*(j-1),zm(j),u(igrid,j),
-     1      v(igrid,j),
-     2      SQRT(u(igrid,j)**2+v(igrid,j)**2),t(igrid,j),theta(j)
+          WRITE(38,'(19e14.6)') 0.,deta*(j-1),zm(j),u(igr,jgr,j),
+     1      v(igr,jgr,j),
+     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),theta(j)
         end do
 
         OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
@@ -404,7 +414,7 @@ c---------Open file for data output during time integrations
      1      //CHAR(48+jd-jd10*10)//'.dat')
         WRITE(39,'(
      1      """ Time,T0,dlw,dsw,lw,sw,h0,e0,gflux,sh,alb""")')
-        WRITE(39,'(19e14.6)') 0.,t(igrid,1),dlw,dsw,lw,sw,h0,e0,gflux,
+        WRITE(39,'(19e14.6)') 0.,t(igr,jgr,1),dlw,dsw,lw,sw,h0,e0,gflux,
      1      sh,albedo1
 
         OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
@@ -420,6 +430,7 @@ c
         ENDIF
 
       end do
+      end do
 
 c      WRITE(6,'(i9,14f10.4,//)')
 c     1  jd,s00,s0c,ASIN(sdec)/rpi,ASIN(ss+cc)/rpi
@@ -429,9 +440,10 @@ c
      1                   "  and Earth Hour  ",i2)') jd,jh
       do 9997 jm=1,nmts                                                    ! One Earth hour integration
 
-      do 9996 igrid=1,ngrid
+      do 9996 igr=1,mgr
+      do 9996 jgr=1,ngr
 
-      betag=grav/t(igrid,1)
+      betag=grav/t(igr,jgr,1)
 c---------Calculate celestial mechanics for the current solar day
       ar=slon*rpi                   ! Areocentric longitude in radians
       ar=2*pi*(jd+311)/365          ! Model begins 9th November, Pielke 1984 p211
@@ -452,16 +464,16 @@ c---------Calculating surface fluxes using Monin-Obukhov similarity
       sh=cc*COS(ha)+ss                   ! Sin of solar height angle
 c==============Calculating hydrostatic pressure (mb)
       do j=2,nj
-        p(igrid,j)=p(igrid,j-1)
-     1      -p(igrid,j-1)/t(igrid,j)*grav/rgas*deta/dedzt(j-1)
-        turbhr(j)=t(igrid,j)                           !  Store T for output
+        p(igr,jgr,j)=p(igr,jgr,j-1)
+     1      -p(igr,jgr,j-1)/t(igr,jgr,j)*grav/rgas*deta/dedzt(j-1)
+        turbhr(j)=t(igr,jgr,j)                           !  Store T for output
       enddo
 c==============Calculating boundary layer dynamics
 c---------Converting temperature to potential temperature
       do j=1,nj
-        theta(j)=t(igrid,j)*(p(igrid,1)/p(igrid,j))**(rgas/cp)
+        theta(j)=t(igr,jgr,j)*(p(igr,jgr,1)/p(igr,jgr,j))**(rgas/cp)
       enddo
-      q(igrid,1)=0.01!16351195        ! specified constant ground wetness to q(1)
+      q(igr,jgr,1)=0.01!16351195        ! specified constant ground wetness to q(1)
 c      open (UNIT=55,FILE='q.DAT')
 c      write (55,*) q(1)
 c      close (55)
@@ -470,48 +482,50 @@ c---------theory. It is applied between the surface and gridpoint zm(nw)
 c      CALL subsrf(u,v,theta,q,qi,dedzt,zm,zt,e,ep,kh,km,rif,rlmo,tl,
 c     1              tld,uw,vw,wt,wq,wqi,rifc,wlo,nj,nw)
       do i=2,nj
-        q(igrid,i)=qold(igrid,i)
-        qi(igrid,i)=qiold(igrid,i)
+        q(igr,jgr,i)=qold(igr,jgr,i)
+        qi(igr,jgr,i)=qiold(igr,jgr,i)
       end do
 c---------Calculating finite difference matrix and lu decomposition
-      wlo=-vk*betag*wt(igrid,1)/ustar_2D(igrid)**3
-      CALL coeffi(a,alfa,b,beta,c,d,e(igrid,:),ep(igrid,:),p(igrid,:),
-     1  q(igrid,:),qi(igrid,:),theta,u(igrid,:),v(igrid,:),uw(igrid,:),
-     2  vw(igrid,:),dedzm,dedzt,rnet,kh(igrid,:),km(igrid,:),
-     3  tld(igrid,:),zm,wa,wlo,ipvt,nj,nv,nw)
+      wlo=-vk*betag*wt(igr,jgr,1)/ustar_2D(igr,jgr)**3
+      CALL coeffi(a,alfa,b,beta,c,d,e(igr,jgr,:),ep(igr,jgr,:),
+     1  p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),theta,u(igr,jgr,:),
+     2  v(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),dedzm,dedzt,rnet,
+     3  kh(igr,jgr,:),km(igr,jgr,:),tld(igr,jgr,:),zm,wa,wlo,ipvt,nj,nv,
+     4  nw)
 
 c---------Solving tridiagonal equations
       CALL solve(psi,alfa,beta,nv,nj)
 
 c---------Updating the solution
       do 110 j=1,nj
-        u(igrid,j)    =psi(j,1)
-        v(igrid,j)    =psi(j,2)
+        u(igr,jgr,j)    =psi(j,1)
+        v(igr,jgr,j)    =psi(j,2)
         theta(j)=psi(j,3)
-        q(igrid,j)    =MAX(0.,psi(j,4))
-        qi(igrid,j)   =MAX(0.,psi(j,5))
-        e(igrid,j)    =MAX(psi(j,6),emin)
-        ep(igrid,j)=(alpha*e(igrid,j))**1.5/tld(igrid,j)
+        q(igr,jgr,j)    =MAX(0.,psi(j,4))
+        qi(igr,jgr,j)   =MAX(0.,psi(j,5))
+        e(igr,jgr,j)    =MAX(psi(j,6),emin)
+        ep(igr,jgr,j)=(alpha*e(igr,jgr,j))**1.5/tld(igr,jgr,j)
 110   CONTINUE
 c
       do i=2,nj
         if (zm(j).gt.10000) then
-          e(igrid,:j)=emin
+          e(igr,jgr,:j)=emin
         end if
-        q(igrid,i)=qold(igrid,i)
-        qi(igrid,i)=qiold(igrid,i)
+        q(igr,jgr,i)=qold(igr,jgr,i)
+        qi(igr,jgr,i)=qiold(igr,jgr,i)
       end do
 
 c---------Converting potential temperature to the temperature
       do 120 j=1,nj
-        t(igrid,j)=theta(j)*(p(igrid,j)/p(igrid,1))**(rgas/cp)
+        t(igr,jgr,j)=theta(j)*(p(igr,jgr,j)/p(igr,jgr,1))**(rgas/cp)
 120   CONTINUE
 
 c---------Calculating turbulent length scales, eddy diffusivity & fluxes
-      CALL sublkf(u(igrid,:),v(igrid,:),theta,q(igrid,:),qi(igrid,:),
-     1  dudz,dvdz,dthdz,dedzt,zm,zt,e(igrid,:),ep(igrid,:),kh(igrid,:),
-     2  km(igrid,:),rif,rlmo,tl,tld(igrid,:),uw(igrid,:),vw(igrid,:),
-     3  wt(igrid,:),wq(igrid,:),wqi(igrid,:),rifc,wlo,nj,nw)
+      CALL sublkf(u(igr,jgr,:),v(igr,jgr,:),theta,q(igr,jgr,:),
+     1  qi(igr,jgr,:),dudz,dvdz,dthdz,dedzt,zm,zt,e(igr,jgr,:),
+     2  ep(igr,jgr,:),kh(igr,jgr,:),km(igr,jgr,:),rif,rlmo,tl,
+     3  tld(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),wt(igr,jgr,:),
+     4  wq(igr,jgr,:),wqi(igr,jgr,:),rifc,wlo,nj,nw)
 
 c     do i=1,nj
 c       ustarp(i)=(uw(i)*uw(i)+vw(i)*vw(i))**.25
@@ -521,60 +535,61 @@ c       qistarp(i)=-wqi(i)/ustarp(i)
 c     end do
 
       do i=2,nj
-        q(igrid,i)=qold(igrid,i)
-        qi(igrid,i)=qiold(igrid,i)
+        q(igr,jgr,i)=qold(igr,jgr,i)
+        qi(igr,jgr,i)=qiold(igr,jgr,i)
       end do
 
-      ustar_2D(igrid)=
-     1  (uw(igrid,1)*uw(igrid,1)+vw(igrid,1)*vw(igrid,1))**.25
-      tstar=-wt(igrid,1)/ustar_2D(igrid)
-      qstar=-wq(igrid,1)/ustar_2D(igrid)
-      qistar=-wqi(igrid,1)/ustar_2D(igrid)
-      uw0=uw(igrid,1)
-      vw0=vw(igrid,1)
-      wt0=wt(igrid,1)
-      wq0=wq(igrid,1)
-      wqi0=wqi(igrid,1)
+      ustar_2D(igr,jgr)=
+     1  (uw(igr,jgr,1)*uw(igr,jgr,1)+vw(igr,jgr,1)*vw(igr,jgr,1))**.25
+      tstar=-wt(igr,jgr,1)/ustar_2D(igr,jgr)
+      qstar=-wq(igr,jgr,1)/ustar_2D(igr,jgr)
+      qistar=-wqi(igr,jgr,1)/ustar_2D(igr,jgr)
+      uw0=uw(igr,jgr,1)
+      vw0=vw(igr,jgr,1)
+      wt0=wt(igr,jgr,1)
+      wq0=wq(igr,jgr,1)
+      wqi0=wqi(igr,jgr,1)
 
 c==============Calculating radiative heating rates hlw, hsw,
 c==============and surface fluxes dlw, dsw, sdir
-      q(igrid,1)=q(igrid,2)     ! surface air-q is made equal to first air-level
+      q(igr,jgr,1)=q(igr,jgr,2)     ! surface air-q is made equal to first air-level
       albedo1=albedo+.1*(1.-sh)   ! albedo is 10% higher for low sun
-      CALL radia(p(igrid,:),q(igrid,:),t(igrid,:),tvis,hsw,hlw,fu,fd,su,
-     1  sd,hu,hd,nj,s0c,sh,albedo1,cp,grav,sbc,semis,dlw,dsw,sdir)
+      CALL radia(p(igr,jgr,:),q(igr,jgr,:),t(igr,jgr,:),tvis,hsw,hlw,fu,
+     1  fd,su,sd,hu,hd,nj,s0c,sh,albedo1,cp,grav,sbc,semis,dlw,dsw,sdir)
 
       do i=2,nj
-        q(igrid,i)=qold(igrid,i)
-        qi(igrid,i)=qiold(igrid,i)
+        q(igr,jgr,i)=qold(igr,jgr,i)
+        qi(igr,jgr,i)=qiold(igr,jgr,i)
       end do
 
 c---------Converting Rnet from T to potential temperature
       do j=2,nj-1
-        turbhr(j)=(t(igrid,j)-turbhr(j))/ds ! turbulent heating for output
+        turbhr(j)=(t(igr,jgr,j)-turbhr(j))/ds ! turbulent heating for output
         rnet(j)=hlw(j)+hsw(j)
 c        rnet(j)=(p(1)/p(j))**(rgas/cp)*rnet(j)      ! used in COEFF
-        t(igrid,j)=t(igrid,j)+ds*rnet(j)    ! add radiation heating to air temp
+        t(igr,jgr,j)=t(igr,jgr,j)+ds*rnet(j)    ! add radiation heating to air temp
       enddo
 
 c==============Calculating waterice cloud formation/sublimation
-      qi(igrid,1)=qi(igrid,2)
-      CALL swcond(p(igrid,:),q(igrid,:),qi(igrid,:),t(igrid,:),cp,
-     1  latent,nj)
+      qi(igr,jgr,1)=qi(igr,jgr,2)
+      CALL swcond(p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),t(igr,jgr,:),
+     1  cp,latent,nj)
 
       do i=2,nj
-        q(igrid,i)=qold(igrid,i)
-        qi(igrid,i)=qiold(igrid,i)
+        q(igr,jgr,i)=qold(igr,jgr,i)
+        qi(igr,jgr,i)=qiold(igr,jgr,i)
       end do
 
 c==============Calculating ground energy fluxes
 c---------Computing short wave irradiation on slant ground
       CALL swisg(dsw,ha,rlat,sdec,sdir,sh,swi)
-      lw=dlw-sbc*semis*t(igrid,1)**4         ! LW net radiation at surface
+      lw=dlw-sbc*semis*t(igr,jgr,1)**4         ! LW net radiation at surface
       sw=(1.-albedo1)*swi            ! sw net rad at slant sfc, w/m2
-      rho=100.*(p(igrid,1)+p(igrid,2))/rgas/(t(igrid,1)+t(igrid,2))
+      rho=100.*(p(igr,jgr,1)
+     1      +p(igr,jgr,2))/rgas/(t(igr,jgr,1)+t(igr,jgr,2))
 c      forcing=40.*SIN(ha + 2.*pi/6)
-      h0=rho*cp*wt(igrid,1)! + forcing        ! sfc heat flux w/m2
-      e0=rho*latent*wq(igrid,1)                ! sfc latent heat flux w/m2
+      h0=rho*cp*wt(igr,jgr,1)! + forcing        ! sfc heat flux w/m2
+      e0=rho*latent*wq(igr,jgr,1)                ! sfc latent heat flux w/m2
 c
       gflux=lw+sw-h0-e0                    ! net surface energy flux
 
@@ -586,9 +601,9 @@ c---------Outputing surface values
      1      hlw(2),hsw(2),rnet(2)
       IF( (jh.ge.7).AND.(jh.le.10) ) THEN
         WRITE(29,'(19e14.6)') ds*jm/hoursec+(jh-1.)+(jd-1.)*nhrs,
-     1      e(igrid,:1),ustar_2D(igrid),wt0,theta(1),theta(2),
-     2      u(igrid,2),v(igrid,2),p(igrid,2),dlw,dsw,lw,sw,h0,e0,gflux,
-     3      hlw(2),hsw(2),rnet(2)
+     1      e(igr,jgr,:1),ustar_2D(igr,jgr),wt0,theta(1),theta(2),
+     2      u(igr,jgr,2),v(igr,jgr,2),p(igr,jgr,2),dlw,dsw,lw,sw,h0,e0,
+     3      gflux,hlw(2),hsw(2),rnet(2)
       ENDIF
 
       IF(MOD(jm,jmout).eq.0) then
@@ -601,16 +616,19 @@ c     5      ds*jm/hoursec+(jh-1.),e(1),ustar,wt0,
 c     6      -vk*betag*wt0/ustar**3,tl(1),tld(1),theta(1),theta(2),
 c     7      u(2),v(2),SQRT(u(2)*u(2)+v(2)*v(2))
         WRITE(31,'(19e14.6)') ds*jm/hoursec+(jh-1.)+(jd-1.)*nhrs,
-     1      e(igrid,:1),ustar_2D(igrid),uw0,vw0,wt0,wq0,wqi0,
-     2      -vk*betag*wt0/ustar_2D(igrid)**3,theta(1),theta(2),tl(1),
-     3      tld(igrid,1),u(igrid,2),v(igrid,2),
-     4      SQRT(u(igrid,2)*u(igrid,2)+v(igrid,2)*v(igrid,2)),forcing
+     1      e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,wt0,wq0,wqi0,
+     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,theta(1),theta(2),tl(1),
+     3      tld(igr,jgr,1),u(igr,jgr,2),v(igr,jgr,2),
+     4      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
+     5      forcing
 c---------Calculating Boundary-Layer Height
-        ss05=.05*SQRT(uw(igrid,1)*uw(igrid,1)+vw(igrid,1)*vw(igrid,1))
+        ss05=.05*SQRT(uw(igr,jgr,1)*uw(igr,jgr,1)
+     1          +vw(igr,jgr,1)*vw(igr,jgr,1))
         ssz1=0.
 c        ss05=wt(1)
         do 202 j=2,nj-1
-          ssz2=.5*SQRT(uw(igrid,j)*uw(igrid,j)+vw(igrid,j)*vw(igrid,j))
+          ssz2=.5*SQRT(uw(igr,jgr,j)*uw(igr,jgr,j)
+     1           +vw(igr,jgr,j)*vw(igr,jgr,j))
 c          ssz2=wt(j)
           IF( (ss05.le.ssz1).and.(ss05.ge.ssz2) ) THEN
             blht=zt(j-1)+(zt(j)-zt(j-1))*(ss05-ssz1)/(ssz2-ssz1)
@@ -620,19 +638,20 @@ c          ssz2=wt(j)
 202     CONTINUE
 
         WRITE(32,'(20e14.6)') ds*jm/hoursec+(jh-1.),
-     1      e(igrid,:1),ustar_2D(igrid),uw0,vw0,wt0,wq0,wqi0,
-     2      -vk*betag*wt0/ustar_2D(igrid)**3,blht,theta(1),theta(2),
-     3      tl(1),tld(igrid,1),u(igrid,2),v(igrid,2),
-     4      SQRT(u(igrid,2)*u(igrid,2)+v(igrid,2)*v(igrid,2)),forcing
+     1      e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,wt0,wq0,wqi0,
+     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,theta(1),theta(2),
+     3      tl(1),tld(igr,jgr,1),u(igr,jgr,2),v(igr,jgr,2),
+     4      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
+     5      forcing
 
         do j=1,nj
           WRITE(38,'(19e14.6)') ds*jm/hoursec+(jh-1.),
-     1      deta*(j-1),zm(j),u(igrid,j),v(igrid,j),
-     2      SQRT(u(igrid,j)**2+v(igrid,j)**2),t(igrid,j),theta(j)
+     1      deta*(j-1),zm(j),u(igr,jgr,j),v(igr,jgr,j),
+     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),theta(j)
         end do
 
         WRITE(39,'(19e14.6)') ds*jm/hoursec+(jh-1.),
-     1      t(igrid,1),dlw,dsw,lw,sw,h0,e0,gflux,sh,albedo1
+     1      t(igr,jgr,1),dlw,dsw,lw,sw,h0,e0,gflux,sh,albedo1
 
 c---------Output T (K) on three MPF levels (0.52, 0.77 & 1.27)
         do i=1,3
@@ -640,19 +659,19 @@ c---------Output T (K) on three MPF levels (0.52, 0.77 & 1.27)
             IF( (zout(i).ge.zm(j)).AND.(zout(i).le.zm(j+1)) ) GOTO 91
           end do
 91        CONTINUE
-          tout(i)=t(igrid,j)+(t(igrid,j+1)-t(igrid,j))*
+          tout(i)=t(igr,jgr,j)+(t(igr,jgr,j+1)-t(igr,jgr,j))*
      1      alog((zout(i)/z0+1.)/(zm(j)/z0+1.))
      2      /alog((zm(j+1)/z0+1.)/(zm(j)/z0+1.))
         end do
 
-        wind=SQRT(u(igrid,j)**2+v(igrid,j)**2)+
-     1      ( SQRT(u(igrid,j+1)**2+v(igrid,j+1)**2)
-     2       -SQRT(u(igrid,j)**2+v(igrid,j)**2) )*
+        wind=SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2)+
+     1      ( SQRT(u(igr,jgr,j+1)**2+v(igr,jgr,j+1)**2)
+     2       -SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2) )*
      3      alog((zwind/z0+1.)/(zm(j)/z0+1.))
      4      /alog((zm(j+1)/z0+1.)/(zm(j)/z0+1.))
 
         WRITE(27,'(1x,e13.6,1x,3e13.6,2(1x,e13.6),1x,2e14.6)')
-     1      ds*jm/hoursec+(jh-1.),(tout(l),l=1,3),t(igrid,1),wind,
+     1      ds*jm/hoursec+(jh-1.),(tout(l),l=1,3),t(igr,jgr,1),wind,
      2      tout(1)-tout(3),tout(2)-tout(3)
 c
       ENDIF
@@ -664,11 +683,11 @@ c
 c      PRINT*,t(1)                                                      !**************************************** T ****************************
 c      pause
 c++++++++++++++Calculating soil temperature
-      CALL soiltdm(dedzs,tsoil(igrid,:),zsoil,dzeta,gflux,ds,ni)
-      t(igrid,1)=tsoil(igrid,1)
+      CALL soiltdm(dedzs,tsoil(igr,jgr,:),zsoil,dzeta,gflux,ds,ni)
+      t(igr,jgr,1)=tsoil(igr,jgr,1)
 c      PRINT*,'T0=',t(1)
 
-      betag=grav/t(igrid,1)
+      betag=grav/t(igr,jgr,1)
 c
 c      p0=p(1)                        !Surface pressure for dust component
 c      CALL Dust(ir,nj,ustar,zm,ttd,tvis,Conc1,Km,t,taur
@@ -693,23 +712,26 @@ c---------Writing hourly data output
 c
       if (jd.eq.10) then
         if (jh.eq.24) then
-          do igrid=1,ngrid
+          do igr=1,mgr
+          do jgr=1,ngr
             open (55,FILE='0.Turb.DAT')
             write (55,*) 'zt,e,uw,vw,tl,tld,ep,km,kh,wq,wqi,rnet,wt'
             do i=1,nj
-              WRITE(55,2000) zt(i),e(igrid,:i),uw(igrid,i),
-     1          vw(igrid,i),tl(i),tld(igrid,i),ep(igrid,:i),km(igrid,i),
-     2          kh(igrid,i),wq(igrid,i),wqi(igrid,i),rnet(i),wt(igrid,i)
+              WRITE(55,2000) zt(i),e(igr,jgr,:i),uw(igr,jgr,i),
+     1          vw(igr,jgr,i),tl(i),tld(igr,jgr,i),ep(igr,jgr,:i),
+     2          km(igr,jgr,i),kh(igr,jgr,i),wq(igr,jgr,i),
+     3          wqi(igr,jgr,i),rnet(i),wt(igr,jgr,i)
             end do
             close (55)
 
             open (55,FILE='0.Met.DAT')
             write (55,*) 'zm, u, v, t, p, q, qi'
             do i=1,nj
-              WRITE(55,3000) zm(i),u(igrid,i),v(igrid,i),t(igrid,i),
-     1          p(igrid,i),q(igrid,i),qi(igrid,i)
+              WRITE(55,3000) zm(i),u(igr,jgr,i),v(igr,jgr,i),
+     1          t(igr,jgr,i),p(igr,jgr,i),q(igr,jgr,i),qi(igr,jgr,i)
             end do
             close (55)
+          end do
           end do
         end if
       end if
@@ -725,20 +747,21 @@ c      CLOSE(55)
 c
       if (jd.ge.nds) then
 c
-        do igrid=1,ngrid
+        do igr=1,mgr
+        do jgr=1,ngr
           OPEN(55,FILE='M-D'//CHAR(48+jd10)//
      1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
      2                      CHAR(48+jh-j10*10)//'.dat')
-          CALL meanout(zm,zt,u(igrid,:),v(igrid,:),t(igrid,:),theta,
-     1      p(igrid,:),q(igrid,:),qi(igrid,:),z0,nj,55)
+          CALL meanout(zm,zt,u(igr,jgr,:),v(igr,jgr,:),t(igr,jgr,:),
+     1      theta,p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),z0,nj,55)
           CLOSE(55)
 
           OPEN(55,FILE='T-D'//CHAR(48+jd10)//
      1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
      2                      CHAR(48+jh-j10*10)//'.dat')
-          CALL turbout(zm,zt,e(igrid,:),uw(igrid,:),vw(igrid,:),
-     1      wt(igrid,:),wq(igrid,:),wqi(igrid,:),ep(igrid,:),
-     2      km(igrid,:),kh(igrid,:),tld,z0,nj,55)
+          CALL turbout(zm,zt,e(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),
+     1      wt(igr,jgr,:),wq(igr,jgr,:),wqi(igr,jgr,:),ep(igr,jgr,:),
+     2      km(igr,jgr,:),kh(igr,jgr,:),tld,z0,nj,55)
           CLOSE(55)
 
           OPEN(55,FILE='ST-D'//CHAR(48+jd10)//
@@ -747,6 +770,7 @@ c
           call stempout(tsoil,zsoil,ni,55)
           CLOSE(55)
 c
+        end do
         end do
       END if
 c
@@ -797,14 +821,17 @@ c        WRITE(26,'(5x,"""zm, T, zt, R_HR,SR_HR,TR_HR, LWFD,LWFU, RFU_HR,RF
 c     1D_HR, T_HR, T_HR, VS_HF,VL_HF, <wt>,<wq>, Q,Qi, Wind, zt """)')
         do j=2,nj-1
 c			    rho=100.*(p(j)+p(j+1))/rgas/(t(j)+t(j+1))
-          do igrid=1,ngrid
-            WRITE(26,'(29e14.6)') zm(j),t(igrid,j),zt(j),
+          do igr=1,mgr
+          do jgr=1,ngr
+            WRITE(26,'(29e14.6)') zm(j),t(igr,jgr,j),zt(j),
      1          rnet(j)*hoursec,hsw(j)*hoursec,hlw(j)*hoursec,fd(j),
      2          fu(j),sd(j),su(j),hu(j)*hoursec,hd(j)*hoursec,
      3          (rnet(j)+turbhr(j))*hoursec,turbhr(j)*hoursec,
-     4          rho*cp*wt(igrid,j),rho*latent*wq(igrid,j),
-     5          q(igrid,j)*1.e3,qi(igrid,j)*1.e6,
-     6          SQRT(u(igrid,j)*u(igrid,j)+v(igrid,j)*v(igrid,j)),zt(j)
+     4          rho*cp*wt(igr,jgr,j),rho*latent*wq(igr,jgr,j),
+     5          q(igr,jgr,j)*1.e3,qi(igr,jgr,j)*1.e6,
+     6          SQRT(u(igr,jgr,j)*u(igr,jgr,j)
+     7              +v(igr,jgr,j)*v(igr,jgr,j)),zt(j)
+          end do
           end do
         end do
         CLOSE(26)
