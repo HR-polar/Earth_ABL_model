@@ -8,13 +8,13 @@
 !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-MODULE io
+module io
 
-  USE NCIO
+  use ncio
 
-  PUBLIC :: read_grid
+  public :: read_grid
 
-  CONTAINS
+  contains
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routine to read the grid - lon, lat, and mask
@@ -22,35 +22,35 @@ MODULE io
 !   returns them
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  SUBROUTINE read_grid(fname, lon_name, lat_name, mask_name, mgr, ngr, rlon, rlat, mask)
+  subroutine read_grid(fname, lon_name, lat_name, mask_name, mgr, ngr, rlon, rlat, mask)
 
-    IMPLICIT NONE
+    implicit none
 
     ! Parameters
-    CHARACTER(LEN=*), INTENT(IN) :: fname, lon_name, lat_name, mask_name
-    INTEGER, INTENT(OUT) :: mgr, ngr
-    REAL, DIMENSION(:,:), ALLOCATABLE, INTENT(OUT) :: rlat, rlon
-    INTEGER, DIMENSION(:,:), ALLOCATABLE, INTENT(OUT) :: mask
+    character(len=*), intent(in) :: fname, lon_name, lat_name, mask_name
+    integer, intent(out) :: mgr, ngr
+    real, dimension(:,:), allocatable, intent(out) :: rlat, rlon
+    integer, dimension(:,:), allocatable, intent(out) :: mask
 
     ! Working variables
-    CHARACTER(LEN=32), ALLOCATABLE :: dimnames(:)
-    INTEGER, ALLOCATABLE :: dimlens(:)
+    character(len=32), allocatable :: dimnames(:)
+    integer, allocatable :: dimlens(:)
 
     ! Get the dims
-    CALL nc_dims(fname, lon_name, dimnames, dimlens)
+    call nc_dims(fname, lon_name, dimnames, dimlens)
     mgr = dimlens(1)
     ngr = dimlens(2)
 
     ! Allocate rlon and rlat
-    ALLOCATE(rlon(mgr,ngr))
-    ALLOCATE(rlat, mold=rlon)
-    ALLOCATE(mask(mgr,ngr))
+    allocate(rlon(mgr,ngr))
+    allocate(rlat, mold=rlon)
+    allocate(mask(mgr,ngr))
 
     ! Read from file
-    CALL nc_read(fname, lon_name, rlon)
-    CALL nc_read(fname, lat_name, rlat)
-    CALL nc_read(fname, mask_name, mask)
+    call nc_read(fname, lon_name, rlon)
+    call nc_read(fname, lat_name, rlat)
+    call nc_read(fname, mask_name, mask)
 
-  END SUBROUTINE read_grid
+  end subroutine read_grid
 
-END MODULE io
+end module io
