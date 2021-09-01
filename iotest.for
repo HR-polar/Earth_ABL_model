@@ -54,7 +54,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 ! Create file and initialise variables
         fname = "out_test.nc"
-        time = time%now()
+        time = datetime(2015,12,15,12,15,12,15)
+        print *, time%isoformat()
         call init_netCDF(fname, mgr, ngr, mask, rlon, rlat, time, 100)
         call init_netCDF_var(fname, "test2D", 2,
      1      long_name="test_for_a_2D_case",

@@ -40,7 +40,7 @@ module io
 !   - We calculate the time in netCDF reference (see time_unit and reference_time parameters)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  real function netCDF_time(time_in) result(time_out)
+double precision function netCDF_time(time_in) result(time_out)
 
     implicit none
 
@@ -49,20 +49,19 @@ module io
     type(timedelta) :: dt
 
     ! Express the difference between time_in and reference time in time_unit
-    dt = time_in - strptime(reference_time, time_format)
+    dt = time_in - strptime(trim(reference_time), trim(time_format))
 
-    select case (time_unit)
-      case ("seconds")
-        time_out = dt%getSeconds()
-      case ("minutes")
-        time_out = dt%getMinutes()
-      case ("hours")
-        time_out = dt%getHours()
-      case ("days")
-        time_out = dt%getDays()
-      case default
-        stop "mod_io: netCDF_time: Case "//trim(time_unit)//" not recognised"
-      end select
+    if ( time_unit .eq. "seconds" ) then
+      time_out = dt%total_seconds()
+      return
+    elseif ( time_unit .eq. "hours" ) then
+      time_out = dt%total_seconds()/3600.
+      return
+    elseif ( time_unit .eq. "days" ) then
+      time_out = dt%total_seconds()/86400.
+    else
+      stop "mod_io: netCDF_time: Case "//trim(time_unit)//" not recognised"
+    endif
 
     end function netCDF_time
 
@@ -88,7 +87,7 @@ module io
     type(datetime), intent(in) :: time_in
     integer, intent(in), optional :: nz
 
-    real :: time
+    double precision :: time
 
     ! Get the time in netCDF format
     time = netCDF_time(time_in)
@@ -153,9 +152,10 @@ module io
     character(len=*), intent(in) :: fname
     type(datetime), intent(in) :: time_in
 
-    real :: time
+    double precision :: time
     integer :: time_slice
 
+    ! Get the time in netCDF format
     time = netCDF_time(time_in)
 
     time_slice = nc_size(fname, "time")
