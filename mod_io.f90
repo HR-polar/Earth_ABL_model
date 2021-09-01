@@ -2,7 +2,7 @@
 !
 !   Routines for I/O for the ABL.for model
 !
-! * We use ncio
+! * We use ncio and datetime_module
 ! * Read and write netCDF files in 2D and 3D
 ! * Calculate geostrophic winds from SLP
 !
@@ -18,11 +18,11 @@ module io
   private
 
   ! Time keeping constants
-  character(len=32), parameter :: time_unit = "days"
-  character(len=32), parameter :: calendar = "standard"
-  character(len=32), parameter :: reference_time = "1900-01-01"
-  character(len=32), parameter :: time_format= "%Y-%m-%d %H:%M:%S"
-  character(len=64), parameter :: time_string = trim(time_unit)//" since "//reference_time
+  character(len=8), parameter :: time_unit = "days"
+  character(len=8), parameter :: calendar = "standard"
+  character(len=19), parameter :: reference_time = "1900-01-01 00:00:00"
+  character(len=17), parameter :: time_format= "%Y-%m-%d %H:%M:%S"
+  character(len=34), parameter :: time_string = trim(time_unit)//" since "//reference_time
 
   interface write_netCDF_var
     module procedure write_netCDF_2D, write_netCDF_3D
