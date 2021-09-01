@@ -10,21 +10,61 @@
 
 module io
 
-  use ncio
+  use ncio, only: nc_create, nc_write_dim, nc_write, nc_size, nc_dims, nc_read
+  use datetime_module, only: datetime, timedelta, strptime
 
   implicit none
 
-  character(len=3), parameter :: msl_name = "msl"
-  character(len=256), parameter :: msl_file = "era5_"//msl_name//"_y"
+  private
+
+  ! Time keeping constants
+  character(len=32), parameter :: time_unit = "days"
+  character(len=32), parameter :: calendar = "standard"
+  character(len=32), parameter :: reference_time = "1900-01-01"
+  character(len=32), parameter :: time_format= "%Y-%m-%d %H:%M:%S"
+  character(len=64), parameter :: time_string = trim(time_unit)//" since "//reference_time
 
   interface write_netCDF_var
     module procedure write_netCDF_2D, write_netCDF_3D
   end interface
 
-  public :: init_netCDF, append_netCDF_time, write_netCDF_var
+  public :: init_netCDF, init_netCDF_var, append_netCDF_time, write_netCDF_var
   public :: read_grid
 
+  private :: netCDF_time
+
   contains
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Time handling
+!   - We calculate the time in netCDF reference (see time_unit and reference_time parameters)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+  real function netCDF_time(time_in) result(time_out)
+
+    implicit none
+
+    type(datetime), intent(in) :: time_in
+
+    type(timedelta) :: dt
+
+    ! Express the difference between time_in and reference time in time_unit
+    dt = time_in - strptime(reference_time, time_format)
+
+    select case (time_unit)
+      case ("seconds")
+        time_out = dt%getSeconds()
+      case ("minutes")
+        time_out = dt%getMinutes()
+      case ("hours")
+        time_out = dt%getHours()
+      case ("days")
+        time_out = dt%getDays()
+      case default
+        stop "mod_io: netCDF_time: Case "//trim(time_unit)//" not recognised"
+      end select
+
+    end function netCDF_time
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !
@@ -37,7 +77,7 @@ module io
 !   - We write the x, y, and time dimensions, mask, and lat/lon coords
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  subroutine init_netCDF(fname, mgr, ngr, mask, lon, lat, time0, nz)
+  subroutine init_netCDF(fname, mgr, ngr, mask, lon, lat, time_in, nz)
 
     implicit none
 
@@ -45,8 +85,13 @@ module io
     integer, intent(in) :: mgr, ngr
     integer, dimension(:,:), intent(in) :: mask
     real, dimension(:,:), intent(in) :: lon, lat
-    real, intent(in) :: time0
+    type(datetime), intent(in) :: time_in
     integer, intent(in), optional :: nz
+
+    real :: time
+
+    ! Get the time in netCDF format
+    time = netCDF_time(time_in)
 
     ! Create the file
     call nc_create(fname, overwrite=.true., netcdf4=.true.)
@@ -57,7 +102,7 @@ module io
     if ( present(nz) ) then
       call nc_write_dim(fname, "z", 1, nx=nz)
     endif
-    call nc_write_dim(fname, "time", 0, unlimited=.true.)
+    call nc_write_dim(fname, "time", time, unlimited=.true., units=trim(time_string), calendar=trim(calendar))
 
     ! Write lon, lat, time, and mask variables
     call nc_write(fname, "mask", mask, dim1="x", dim2="y")
@@ -65,8 +110,6 @@ module io
       long_name="longitude", standard_name="longitude", units="degrees_north")
     call nc_write(fname, "latitude", lat, dim1="x", dim2="y", &
       long_name="latitude", standard_name="latitude", units="degrees_north")
-    call nc_write(fname, "time", time0, dim1="time", &
-      long_name="time", standard_name="time", units="hours since 1900-01-01 00:00:00")
 
   end subroutine init_netCDF
 
@@ -103,14 +146,17 @@ module io
 ! Routine to append to the netCDF time variable
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  subroutine append_netCDF_time(fname, time)
+  subroutine append_netCDF_time(fname, time_in)
 
     implicit none
 
     character(len=*), intent(in) :: fname
-    real, intent(in), optional :: time
+    type(datetime), intent(in) :: time_in
 
+    real :: time
     integer :: time_slice
+
+    time = netCDF_time(time_in)
 
     time_slice = nc_size(fname, "time")
 

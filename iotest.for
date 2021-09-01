@@ -54,7 +54,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 ! Create file and initialise variables
         fname = "out_test.nc"
-        call init_netCDF(fname, mgr, ngr, mask, rlon, rlat, 0., 100)
+        time = time%now()
+        call init_netCDF(fname, mgr, ngr, mask, rlon, rlat, time, 100)
         call init_netCDF_var(fname, "test2D", 2,
      1      long_name="test_for_a_2D_case",
      1      standard_name="test for a 2D case",
@@ -78,7 +79,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ! append_netCDF_time
         output2D = 1.0
         output3D = 1.0
-        call append_netCDF_time(fname, 1.)
+        time = time + timedelta(days=1)
+        call append_netCDF_time(fname, time)
         call write_netCDF_var(fname, "test2D", output2D)
         call write_netCDF_var(fname, "test3D", output3D)
 
@@ -86,7 +88,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ! append_netCDF_time
         output2D = 1.0
         output3D = 1.0
-        call append_netCDF_time(fname, 10.)
+        time = time + timedelta(days=1)
+        call append_netCDF_time(fname, time)
         call write_netCDF_var(fname, "test2D", output2D)
         call write_netCDF_var(fname, "test3D", output3D)
 
