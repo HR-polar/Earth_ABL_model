@@ -2,6 +2,6 @@
 
 FC = gfortran
 
-FFLAGS = -I$(HOME)/src/ncio/include -I$(HOME)/src/datetime-fortran/build/include
-F90FLAGS = -I$(HOME)/src/ncio/include -I$(HOME)/src/datetime-fortran/build/include
-LDFLAGS = -L$(HOME)/src/ncio/lib -lncio  -L/opt/local/lib -lnetcdff -lnetcdf -L$(HOME)/src/datetime-fortran/build/lib -ldatetime
+FFLAGS = -g -I/opt/local/include -I$(HOME)/src/datetime-fortran/build/include
+F90FLAGS = -g -I/opt/local/include -I$(HOME)/src/datetime-fortran/build/include
+LDFLAGS = -L/opt/local/lib -L$(HOME)/src/datetime-fortran/build/lib

@@ -9,6 +9,7 @@ IOTEST = iotest.x
 OBJ_DIR = .obj
 
 FFLAGS += -std=legacy
+LDFLAGS += -ldatetime -lnetcdff -lnetcdf -lncio
 
 # The source files for modules
 SRC = mod_io.f90
