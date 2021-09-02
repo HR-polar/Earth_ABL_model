@@ -28,10 +28,24 @@ module io
     module procedure write_netCDF_2D, write_netCDF_3D
   end interface
 
-  public :: init_netCDF, init_netCDF_var, append_netCDF_time, write_netCDF_var
-  public :: read_grid
+  type :: input_var_2D
+    integer, private :: m, n
+    real, private, dimension(:,:), allocatable :: lon, lat
+    character(len=32), private :: vname
+    character(len=512), private :: fname
 
-  private :: netCDF_time
+    real, public, dimension(:,:), allocatable :: data
+
+    contains
+      procedure, public :: init, read_input
+  end type
+
+  character(len=37), parameter :: ERA5_prefix = "data/ERA5_"
+  character(len=9), parameter :: ERA5_lon_name = "longitude"
+  character(len=8), parameter :: ERA5_lat_name = "latitude"
+
+  public :: init_netCDF, init_netCDF_var, append_netCDF_time, write_netCDF_var
+  public :: read_grid, input_var_2D
 
   contains
 
@@ -234,5 +248,185 @@ double precision function netCDF_time(time_in) result(time_out)
     call nc_read(fname, mask_name, mask)
 
   end subroutine read_grid
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!
+!                               INPUTS
+!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Initialise the iput_var_2D object
+!   - This just sets some arrays
+!   - TODO: Calculate interpolation weights here
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+  subroutine init(self, varname, lon, lat)
+
+    implicit none
+
+    class(input_var_2D), intent(inout) :: self
+    character(len=*), intent(in) :: varname
+    real, dimension(:,:), allocatable :: lon, lat
+
+    ! Save the variable name and lon and lat in the object
+    self%vname = varname
+    allocate(self%lon, self%lat, mold=lon)
+    self%lon = lon
+    self%lat = lat
+
+    ! Save the size of the grid
+    self%m = size(lon,1)
+    self%n = size(lon,2)
+
+  end subroutine init
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Read and interpolate input
+!   - We read from data and call interp2D to interpolate onto the model grid
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+  subroutine read_input(self, time)
+
+    implicit none
+
+    class(input_var_2D), intent(inout) :: self
+    type(datetime), intent(in) :: time
+
+    ! working variables
+    character(len=32), allocatable :: dimnames(:)
+    integer, allocatable :: dimlens(:)
+    real, dimension(:,:), allocatable :: data_ll, rlon_fx
+    real, dimension(:), allocatable :: elon, elat
+    type(datetime) :: t0
+    type(timedelta) :: dt
+    integer :: time_slice, i, j
+
+    ! Deduce the file name
+    write(self%fname, "(i4)") time%getYear()
+    self%fname = trim(ERA5_prefix)//trim(self%vname)//"_y"//trim(self%fname)//".nc"
+
+    ! Deduce the time slice
+    t0 = datetime(time%getYear(), 01, 01)
+    dt = time - t0
+    time_slice = nint(dt%total_seconds()/3600.) + 1
+
+    ! get the dims and allocate and read from file
+    call nc_dims(self%fname, ERA5_lon_name, dimnames, dimlens)
+    allocate(elon(dimlens(1)+1))
+    call nc_read(self%fname, ERA5_lon_name, elon(1:dimlens(1)))
+    elon(dimlens(1)+1) = 360. ! to get periodic boundary
+
+    call nc_dims(self%fname, ERA5_lat_name, dimnames, dimlens)
+    allocate(elat(dimlens(1)))
+    call nc_read(self%fname, ERA5_lat_name, elat)
+
+    call nc_dims(self%fname, self%vname, dimnames, dimlens)
+    allocate(data_ll(dimlens(1)+1, dimlens(2)))
+
+    ! Read from file
+    call nc_read(self%fname, self%vname, data_ll(1:dimlens(1),1:dimlens(2)), &
+      start=[1, 1, time_slice], count=[dimlens(1), dimlens(2), 1])
+
+    data_ll(dimlens(1)+1,:) = data_ll(1,:) ! To get periodic boundary
+
+    ! We need input longitudes in [0, 360] - like ERA
+    allocate(rlon_fx, mold=self%lon)
+    do i = 1, size(self%lon,1)
+      do j = 1, size(self%lon,2)
+        if ( self%lon(i,j) < 0. ) then
+          rlon_fx(i,j) = self%lon(i,j)+360.
+        else
+          rlon_fx(i,j) = self%lon(i,j)
+        endif
+      enddo
+    enddo
+
+    ! Interpolate to grid
+    if ( .not. allocated(self%data) ) allocate( self%data( size(self%lat,1), size(self%lat,2) ) )
+    call interp2D(data_ll, elon, elat, self%data, rlon_fx, self%lat)
+
+  end subroutine read_input
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Bilinear interpolation in lat/lon - "it's good enough for government work"
+!   - This should be split up so that weights are calculated only once
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine interp2D(data_in, lon_in, lat_in, data_out, lon_out, lat_out)
+
+    implicit none
+
+    real, dimension(:,:), intent(in) :: data_in, lat_out, lon_out
+    real, dimension(:), intent(in) :: lon_in, lat_in
+    real, dimension(:,:), intent(out) :: data_out
+
+    ! Working variables
+    integer :: a_lon, b_lon, a_lat, b_lat, i, j
+    real :: x1, x2, y1, y2, x, y, r, s
+
+    do i = 1, size(lon_out,1)
+      do j = 1, size(lon_out,2)
+        call bisect(lon_out(i,j), lon_in, a_lon, b_lon)
+        call bisect(lat_out(i,j), lat_in, a_lat, b_lat)
+
+        x = lon_out(i,j)
+        y = lat_out(i,j)
+        x1 = lon_in(a_lon)
+        x2 = lon_in(b_lon)
+        y1 = lat_in(a_lat)
+        y2 = lat_in(b_lat)
+
+        r = (x - x1)/(x2 - x1)
+        s = (y - y1)/(y2 - y1)
+
+        data_out(i,j) = data_in(a_lon, a_lat)*(1-r)*(1-s) &
+                      + data_in(a_lon, b_lat)*r*(1-s)     &
+                      + data_in(b_lon, b_lat)*r*s         &
+                      + data_in(b_lon, a_lat)*(1-r)*s
+
+      enddo
+    enddo
+
+  end subroutine interp2D
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Bisect search to find the lat/lon point on the ERA grid surrounding the model grid point
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine bisect(x, vx, a, b)
+
+    implicit none
+
+    real, intent(in) :: x, vx(:)
+    integer, intent(out) :: a, b
+
+    ! local variables
+    integer :: test
+    logical :: check, is_increasing
+
+    is_increasing = vx(2) .gt. vx(1)
+
+    a = 1
+    b = size(vx)
+
+    test = (b-a)/2
+    do while ( b-a .gt. 1 )
+      ! check if we're increasing or decreasing
+      ! The only difference between the two cases is the .gt./.lt. in the if clause - can this be done more elegantly?
+      if ( is_increasing ) then
+        check = vx(test) .gt. x
+      else
+        check = vx(test) .lt. x
+      endif
+
+      if ( check ) then
+        b = test
+        test = b - (b-a)/2
+      else
+        a = test
+        test = a + (b-a)/2
+      endif
+    enddo
+
+  end subroutine bisect
 
 end module io

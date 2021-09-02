@@ -19,6 +19,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
         TYPE(datetime) :: time
 
+        TYPE(input_var_2D) :: mslp
+
 ! Test reading of grid
 
         fname = "grid.nc"
@@ -93,6 +95,14 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         call append_netCDF_time(fname, time)
         call write_netCDF_var(fname, "test2D", output2D)
         call write_netCDF_var(fname, "test3D", output3D)
+
+        time = datetime(2007,01,01)
+        call mslp%init("msl", rlon, rlat)
+        call mslp%read_input(time)
+
+        fname = "msl_interp.nc"
+        call init_netCDF(fname, mgr, ngr, mask, rlon, rlat, time)
+        call write_netCDF_var(fname, "msl", mslp%data)
 
       END PROGRAM test_io
 
