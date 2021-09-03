@@ -28,16 +28,16 @@ module io
     module procedure write_netCDF_2D, write_netCDF_3D
   end interface
 
-  type :: input_var_2D
-    integer, private :: m, n
-    real, private, dimension(:,:), allocatable :: lon, lat
+  type :: input_var
+    integer, private, dimension(:,:), allocatable :: a_lon, b_lon, a_lat, b_lat
+    real, private, dimension(:,:), allocatable :: r, s
     character(len=32), private :: vname
-    character(len=512), private :: fname
 
-    real, public, dimension(:,:), allocatable :: data
+    real, private, dimension(:,:), allocatable :: data2D
 
     contains
-      procedure, public :: init, read_input
+      procedure, public :: init, read_input, get_point, get_array
+      procedure, private :: calc_weights, interp2D
   end type
 
   character(len=37), parameter :: ERA5_prefix = "data/ERA5_"
@@ -45,7 +45,7 @@ module io
   character(len=8), parameter :: ERA5_lat_name = "latitude"
 
   public :: init_netCDF, init_netCDF_var, append_netCDF_time, write_netCDF_var
-  public :: read_grid, input_var_2D
+  public :: read_grid, input_var
 
   contains
 
@@ -101,6 +101,7 @@ double precision function netCDF_time(time_in) result(time_out)
     type(datetime), intent(in) :: time_in
     integer, intent(in), optional :: nz
 
+    ! Working variables
     double precision :: time
 
     ! Get the time in netCDF format
@@ -129,6 +130,7 @@ double precision function netCDF_time(time_in) result(time_out)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routine to create a new netCDF variable.
 !   - I put a 0. at the first grid point (limitation of ncio)
+!   - Should return an object so we can store all the attributes (ncio looses them otherwise)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   subroutine init_netCDF_var(fname, vname, ndims, long_name, standard_name, units, grid_mapping, missing_value)
 
@@ -139,6 +141,7 @@ double precision function netCDF_time(time_in) result(time_out)
     character(len=*), intent(in), optional :: long_name, standard_name, units, grid_mapping
     real, intent(in), optional :: missing_value
 
+    ! Working variables
     real, parameter :: dummy2D(1,1) = 0., dummy3D(1,1,1) = 0.
 
     if ( ndims .eq. 2 ) then
@@ -166,8 +169,9 @@ double precision function netCDF_time(time_in) result(time_out)
     character(len=*), intent(in) :: fname
     type(datetime), intent(in) :: time_in
 
-    double precision :: time
+    ! Working variables
     integer :: time_slice
+    double precision :: time
 
     ! Get the time in netCDF format
     time = netCDF_time(time_in)
@@ -189,6 +193,7 @@ double precision function netCDF_time(time_in) result(time_out)
     character(len=*), intent(in) :: fname, vname
     real, dimension(:,:), intent(in) :: values
 
+    ! Working variables
     integer :: time_slice
 
     time_slice = nc_size(fname, "time")
@@ -204,6 +209,7 @@ double precision function netCDF_time(time_in) result(time_out)
     character(len=*), intent(in) :: fname, vname
     real, dimension(:,:,:), intent(in) :: values
 
+    ! Working variables
     integer :: time_slice
 
     time_slice = nc_size(fname, "time")
@@ -228,9 +234,9 @@ double precision function netCDF_time(time_in) result(time_out)
     real, dimension(:,:), allocatable, intent(out) :: rlat, rlon
     integer, dimension(:,:), allocatable, intent(out) :: mask
 
-    ! working variables
-    character(len=32), allocatable :: dimnames(:)
-    integer, allocatable :: dimlens(:)
+    ! Working variables
+    integer, dimension(:), allocatable :: dimlens
+    character(len=32), dimension(:), allocatable :: dimnames
 
     ! get the dims
     call nc_dims(fname, lon_name, dimnames, dimlens)
@@ -257,27 +263,61 @@ double precision function netCDF_time(time_in) result(time_out)
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Initialise the iput_var_2D object
-!   - This just sets some arrays
-!   - TODO: Calculate interpolation weights here
+!   - TODO: Add the third dimension
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  subroutine init(self, varname, lon, lat)
+  subroutine init(self, varname, lon, lat, time)
 
     implicit none
 
-    class(input_var_2D), intent(inout) :: self
+    class(input_var), intent(inout) :: self
     character(len=*), intent(in) :: varname
     real, dimension(:,:), allocatable :: lon, lat
+    type(datetime), intent(in) :: time
+
+    ! Working variables
+    integer, dimension(:), allocatable :: dimlens
+    integer :: i, j
+    real, dimension(:,:), allocatable :: lon_fx
+    real, dimension(:), allocatable :: elon, elat
+    character(len=32), dimension(:), allocatable :: dimnames
+    character(len=1024) :: fname
 
     ! Save the variable name and lon and lat in the object
     self%vname = varname
-    allocate(self%lon, self%lat, mold=lon)
-    self%lon = lon
-    self%lat = lat
 
-    ! Save the size of the grid
-    self%m = size(lon,1)
-    self%n = size(lon,2)
+    ! Calculate weights:
+    ! Deduce the file name
+    write(fname, "(i4)") time%getYear()
+    fname = trim(ERA5_prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
+
+    ! get the dims and allocate and read from file
+    call nc_dims(fname, ERA5_lon_name, dimnames, dimlens)
+    allocate(elon(dimlens(1)+1))
+    call nc_read(fname, ERA5_lon_name, elon(1:dimlens(1)))
+    elon(dimlens(1)+1) = 360. ! to get periodic boundary
+
+    call nc_dims(fname, ERA5_lat_name, dimnames, dimlens)
+    allocate(elat(dimlens(1)))
+    call nc_read(fname, ERA5_lat_name, elat)
+
+    ! We need input longitudes in [0, 360] - like ERA
+    allocate(lon_fx, mold=lon)
+    do i = 1, size(lon,1)
+      do j = 1, size(lon,2)
+        if ( lon(i,j) < 0. ) then
+          lon_fx(i,j) = lon(i,j)+360.
+        else
+          lon_fx(i,j) = lon(i,j)
+        endif
+      enddo
+    enddo
+
+    call calc_weights(self, elon, elat, lon_fx, lat)
+
+    ! TODO: Add 3D here
+    ! Allocate data array
+    allocate( self%data2D( size(lat,1), size(lat,2) ) )
 
   end subroutine init
 
@@ -290,100 +330,133 @@ double precision function netCDF_time(time_in) result(time_out)
 
     implicit none
 
-    class(input_var_2D), intent(inout) :: self
+    class(input_var), intent(inout) :: self
     type(datetime), intent(in) :: time
 
-    ! working variables
-    character(len=32), allocatable :: dimnames(:)
+    ! Working variables
     integer, allocatable :: dimlens(:)
-    real, dimension(:,:), allocatable :: data_ll, rlon_fx
-    real, dimension(:), allocatable :: elon, elat
+    integer :: time_slice, i, j
+    real, dimension(:,:), allocatable :: data_ll
+    character(len=32), dimension(:), allocatable :: dimnames
+    character(len=1024) :: fname
     type(datetime) :: t0
     type(timedelta) :: dt
-    integer :: time_slice, i, j
 
     ! Deduce the file name
-    write(self%fname, "(i4)") time%getYear()
-    self%fname = trim(ERA5_prefix)//trim(self%vname)//"_y"//trim(self%fname)//".nc"
+    write(fname, "(i4)") time%getYear()
+    fname = trim(ERA5_prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
 
     ! Deduce the time slice
     t0 = datetime(time%getYear(), 01, 01)
     dt = time - t0
     time_slice = nint(dt%total_seconds()/3600.) + 1
 
-    ! get the dims and allocate and read from file
-    call nc_dims(self%fname, ERA5_lon_name, dimnames, dimlens)
-    allocate(elon(dimlens(1)+1))
-    call nc_read(self%fname, ERA5_lon_name, elon(1:dimlens(1)))
-    elon(dimlens(1)+1) = 360. ! to get periodic boundary
-
-    call nc_dims(self%fname, ERA5_lat_name, dimnames, dimlens)
-    allocate(elat(dimlens(1)))
-    call nc_read(self%fname, ERA5_lat_name, elat)
-
-    call nc_dims(self%fname, self%vname, dimnames, dimlens)
+    ! Get size of input data and allocate
+    call nc_dims(fname, self%vname, dimnames, dimlens)
     allocate(data_ll(dimlens(1)+1, dimlens(2)))
 
     ! Read from file
-    call nc_read(self%fname, self%vname, data_ll(1:dimlens(1),1:dimlens(2)), &
+    call nc_read(fname, self%vname, data_ll(1:dimlens(1),1:dimlens(2)), &
       start=[1, 1, time_slice], count=[dimlens(1), dimlens(2), 1])
 
-    data_ll(dimlens(1)+1,:) = data_ll(1,:) ! To get periodic boundary
+    ! Fix to get periodic boundary
+    data_ll(dimlens(1)+1,:) = data_ll(1,:)
 
-    ! We need input longitudes in [0, 360] - like ERA
-    allocate(rlon_fx, mold=self%lon)
-    do i = 1, size(self%lon,1)
-      do j = 1, size(self%lon,2)
-        if ( self%lon(i,j) < 0. ) then
-          rlon_fx(i,j) = self%lon(i,j)+360.
-        else
-          rlon_fx(i,j) = self%lon(i,j)
-        endif
-      enddo
-    enddo
-
+    ! TODO: Add 3D here
     ! Interpolate to grid
-    if ( .not. allocated(self%data) ) allocate( self%data( size(self%lat,1), size(self%lat,2) ) )
-    call interp2D(data_ll, elon, elat, self%data, rlon_fx, self%lat)
+    call interp2D(self, data_ll)
 
   end subroutine read_input
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! Bilinear interpolation in lat/lon - "it's good enough for government work"
-!   - This should be split up so that weights are calculated only once
+! Getters for points and arrays
+!   - The array getter is not efficient, as it copies the data on output
+!   - TODO: Add 3D getter for columns
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  subroutine interp2D(data_in, lon_in, lat_in, data_out, lon_out, lat_out)
+  function get_point(self, i, j) result(data)
 
     implicit none
 
-    real, dimension(:,:), intent(in) :: data_in, lat_out, lon_out
+    class(input_var), intent(in) :: self
+    integer, intent(in) :: i, j
+    real :: data
+
+    ! TODO: Add 3D here
+    data = self%data2D(i,j)
+
+  end function get_point
+
+  function get_array(self) result(data)
+
+    implicit none
+
+    class(input_var), intent(in) :: self
+    real, dimension(:,:), allocatable :: data
+
+    ! TODO: Add 3D here
+    allocate(data, mold=self%data2D)
+    data = self%data2D
+
+  end function get_array
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Bilinear interpolation in lat/lon - "it's good enough for government work"
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  ! Pre-calculate weights
+  subroutine calc_weights(self, lon_in, lat_in, lon_out, lat_out)
+
+    implicit none
+
+    class(input_var), intent(inout) :: self
+    real, dimension(:,:), intent(in) :: lat_out, lon_out
     real, dimension(:), intent(in) :: lon_in, lat_in
-    real, dimension(:,:), intent(out) :: data_out
 
     ! Working variables
-    integer :: a_lon, b_lon, a_lat, b_lat, i, j
-    real :: x1, x2, y1, y2, x, y, r, s
+    integer :: i, j
+    real :: x1, x2, y1, y2, x, y
+
+    allocate( self%a_lon(size(lon_out,1), size(lon_out,2) ) )
+    allocate( self%b_lon, self%a_lat, self%b_lat, mold=self%a_lon )
+    allocate( self%r, self%s, mold=lon_out )
 
     do i = 1, size(lon_out,1)
       do j = 1, size(lon_out,2)
-        call bisect(lon_out(i,j), lon_in, a_lon, b_lon)
-        call bisect(lat_out(i,j), lat_in, a_lat, b_lat)
+        call bisect(lon_out(i,j), lon_in, self%a_lon(i,j), self%b_lon(i,j))
+        call bisect(lat_out(i,j), lat_in, self%a_lat(i,j), self%b_lat(i,j))
 
         x = lon_out(i,j)
         y = lat_out(i,j)
-        x1 = lon_in(a_lon)
-        x2 = lon_in(b_lon)
-        y1 = lat_in(a_lat)
-        y2 = lat_in(b_lat)
+        x1 = lon_in(self%a_lon(i,j))
+        x2 = lon_in(self%b_lon(i,j))
+        y1 = lat_in(self%a_lat(i,j))
+        y2 = lat_in(self%b_lat(i,j))
 
-        r = (x - x1)/(x2 - x1)
-        s = (y - y1)/(y2 - y1)
+        self%r(i,j) = (x - x1)/(x2 - x1)
+        self%s(i,j) = (y - y1)/(y2 - y1)
 
-        data_out(i,j) = data_in(a_lon, a_lat)*(1-r)*(1-s) &
-                      + data_in(a_lon, b_lat)*r*(1-s)     &
-                      + data_in(b_lon, b_lat)*r*s         &
-                      + data_in(b_lon, a_lat)*(1-r)*s
+      enddo
+    enddo
 
+  end subroutine calc_weights
+
+  ! Do the interpolation
+  subroutine interp2D(self, data_in)
+
+    implicit none
+
+    class(input_var), intent(inout) :: self
+    real, dimension(:,:), intent(in) :: data_in
+
+    ! Working variables
+    integer :: i, j
+    real :: x1, x2, y1, y2, x, y
+
+    do i = 1, size(self%data2D,1)
+      do j = 1, size(self%data2D,2)
+        self%data2D(i,j) = data_in( self%a_lon(i,j), self%a_lat(i,j) ) * (1-self%r(i,j))*(1-self%s(i,j)) &
+                         + data_in( self%a_lon(i,j), self%b_lat(i,j) ) *     self%r(i,j)*(1-self%s(i,j)) &
+                         + data_in( self%b_lon(i,j), self%b_lat(i,j) ) *     self%r(i,j)*self%s(i,j)     &
+                         + data_in( self%b_lon(i,j), self%a_lat(i,j) ) * (1-self%r(i,j))*self%s(i,j)
       enddo
     enddo
 
@@ -400,8 +473,8 @@ double precision function netCDF_time(time_in) result(time_out)
     integer, intent(out) :: a, b
 
     ! local variables
-    integer :: test
     logical :: check, is_increasing
+    integer :: test
 
     is_increasing = vx(2) .gt. vx(1)
 
