@@ -21,6 +21,8 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
         TYPE(input_var) :: mslp
 
+        type(output_file) :: output_test, interp_out
+
 ! Test reading of grid
 
         fname = "grid.nc"
@@ -55,60 +57,72 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 ! Test the output routines
 
 ! Create file and initialise variables
-        fname = "out_test.nc"
+! Need initial time :/
         time = datetime(2015,12,15,12,15,12,15)
         print *, time%isoformat()
-        call init_netCDF(fname, mgr, ngr, mask, rlon, rlat, time, 100)
-        call init_netCDF_var(fname, "test2D", 2,
+        fname = "out_test.nc"
+        call output_test%init(fname, mgr, ngr, mask, rlon, rlat, 10)
+        call output_test%add_var("test2D", 2,
      1      long_name="test_for_a_2D_case",
      1      standard_name="test for a 2D case",
      1      units = "-")
-        call init_netCDF_var(fname, "test3D", 3,
+        call output_test%add_var("test3D", 3,
      1      long_name="test_for_a_3D_case",
      1      standard_name="test for a 3D case",
      1      units = "-")
 
         allocate(output2D(size(rlon,1),size(rlon,2)))
-        allocate(output3D(size(rlon,1),size(rlon,2),100))
+        allocate(output3D(size(rlon,1),size(rlon,2),10))
 
 ! First step and output
         output2D = 0.0
         output3D = 0.0
 
-        call write_netCDF_var(fname, "test2D", output2D)
-        call write_netCDF_var(fname, "test3D", output3D)
+        call output_test%append_time(time)
+        call output_test%append_var("test2D", output2D)
+        call output_test%append_var("test3D", output3D)
 
 ! Second step and output - using the absolute time for
 ! append_netCDF_time
         output2D = 1.0
         output3D = 1.0
         time = time + timedelta(days=1)
-        call append_netCDF_time(fname, time)
-        call write_netCDF_var(fname, "test2D", output2D)
-        call write_netCDF_var(fname, "test3D", output3D)
+        call output_test%append_time(time)
+        call output_test%append_var("test2D", output2D)
+        call output_test%append_var("test3D", output3D)
 
-! Third step and output - this time using the delta-t option for
-! append_netCDF_time
-        output2D = 1.0
-        output3D = 1.0
+! Third step and output
+        output2D = 2.0
+        output3D = 2.0
         time = time + timedelta(days=1)
-        call append_netCDF_time(fname, time)
-        call write_netCDF_var(fname, "test2D", output2D)
-        call write_netCDF_var(fname, "test3D", output3D)
+        call output_test%append_time(time)
+        call output_test%append_var("test2D", output2D)
+        call output_test%append_var("test3D", output3D)
 
-        time = datetime(2007,01,01)
+! Test the loading of data and interpolation
+        time = datetime(2007,08,21)
         call mslp%init("msl", rlon, rlat, time)
         call mslp%read_input(time)
 
+! Write the intrapolation results to file
         fname = "msl_interp.nc"
-        call init_netCDF(fname, mgr, ngr, mask, rlon, rlat, time)
-        call write_netCDF_var(fname, "msl", mslp%get_array())
+        print *, fname
+        call interp_out%init(fname, mgr, ngr, mask, rlon, rlat)
+        call interp_out%add_var("msl", 2,
+     1      long_name="interpolated_msl",
+     2      standard_name="interpolated msl",
+     3      units="Pa",
+     4      missing_value = 0.)
+
+        call interp_out%append_time(time)
+
+! Apply the mask
         do i = 1, mgr
           do j = 1, ngr
             output2D(i,j) = mask(i,j) * mslp%get_point(i,j)
           enddo
         enddo
-        call write_netCDF_var(fname, "masked_msl", output2D)
+        call interp_out%append_var("msl", output2D)
 
       END PROGRAM test_io
 

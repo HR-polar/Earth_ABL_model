@@ -15,37 +15,58 @@ module io
 
   implicit none
 
-  private
+  integer, parameter, private :: short_string = 32
+  integer, parameter, private :: long_string = 512
 
-  ! Time keeping constants
-  character(len=8), parameter :: time_unit = "days"
-  character(len=8), parameter :: calendar = "standard"
-  character(len=19), parameter :: reference_time = "1900-01-01 00:00:00"
-  character(len=17), parameter :: time_format= "%Y-%m-%d %H:%M:%S"
-  character(len=34), parameter :: time_string = trim(time_unit)//" since "//reference_time
-
-  interface write_netCDF_var
-    module procedure write_netCDF_2D, write_netCDF_3D
-  end interface
-
+  ! An input variable (public)
   type :: input_var
     integer, private, dimension(:,:), allocatable :: a_lon, b_lon, a_lat, b_lat
-    real, private, dimension(:,:), allocatable :: r, s
-    character(len=32), private :: vname
+    real, private, dimension(:,:), allocatable :: data2D, r, s
+    character(len=short_string), private :: vname
 
-    real, private, dimension(:,:), allocatable :: data2D
+    character(len=37), private :: prefix = "data/ERA5_"
+    character(len=9), private :: lon_name = "longitude"
+    character(len=8), private :: lat_name = "latitude"
 
     contains
-      procedure, public :: init, read_input, get_point, get_array
+      procedure, public :: init=>init_input_var, read_input, get_point, get_array
       procedure, private :: calc_weights, interp2D
   end type
 
-  character(len=37), parameter :: ERA5_prefix = "data/ERA5_"
-  character(len=9), parameter :: ERA5_lon_name = "longitude"
-  character(len=8), parameter :: ERA5_lat_name = "latitude"
+  ! An output variable (private)
+  type :: output_var
 
-  public :: init_netCDF, init_netCDF_var, append_netCDF_time, write_netCDF_var
-  public :: read_grid, input_var
+    real, private :: missing_value
+    character(len=short_string), private :: vname, long_name, standard_name, units, grid_mapping
+
+    contains
+      procedure, public :: init=>init_output_var
+
+  end type
+
+  ! An output file (public)
+  type :: output_file
+
+    ! Misc. internal variables
+    logical, private :: is_initialised = .false.
+    integer, private :: time_slice
+    character(len=long_string), private :: fname
+    type(output_var), dimension(:), allocatable, private :: var_list
+
+    ! Time keeping constants
+    character(len=8), private :: time_unit = "days"
+    character(len=8), private :: calendar = "standard"
+    character(len=19), private :: reference_time = "1900-01-01 00:00:00"
+    character(len=17), private :: time_format= "%Y-%m-%d %H:%M:%S"
+
+    contains
+      procedure, public :: init=>init_netCDF
+      procedure, public :: add_var, append_time
+      generic, public :: append_var => append_var_2D,append_var_3D
+      procedure, private :: append_var_2D,append_var_3D,netCDF_time,push_back
+  end type
+
+  public :: read_grid, output_file, input_var
 
   contains
 
@@ -54,27 +75,28 @@ module io
 !   - We calculate the time in netCDF reference (see time_unit and reference_time parameters)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-double precision function netCDF_time(time_in) result(time_out)
+double precision function netCDF_time(self, time_in) result(time_out)
 
     implicit none
 
+    class(output_file), intent(in) :: self
     type(datetime), intent(in) :: time_in
 
     type(timedelta) :: dt
 
     ! Express the difference between time_in and reference time in time_unit
-    dt = time_in - strptime(trim(reference_time), trim(time_format))
+    dt = time_in - strptime(trim(self%reference_time), trim(self%time_format))
 
-    if ( time_unit .eq. "seconds" ) then
+    if ( self%time_unit .eq. "seconds" ) then
       time_out = dt%total_seconds()
       return
-    elseif ( time_unit .eq. "hours" ) then
+    elseif ( self%time_unit .eq. "hours" ) then
       time_out = dt%total_seconds()/3600.
       return
-    elseif ( time_unit .eq. "days" ) then
+    elseif ( self%time_unit .eq. "days" ) then
       time_out = dt%total_seconds()/86400.
     else
-      stop "mod_io: netCDF_time: Case "//trim(time_unit)//" not recognised"
+      stop "mod_io: netCDF_time: Case "//trim(self%time_unit)//" not recognised"
     endif
 
     end function netCDF_time
@@ -90,40 +112,50 @@ double precision function netCDF_time(time_in) result(time_out)
 !   - We write the x, y, and time dimensions, mask, and lat/lon coords
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  subroutine init_netCDF(fname, mgr, ngr, mask, lon, lat, time_in, nz)
+  subroutine init_netCDF(self, fname, mgr, ngr, mask, lon, lat, nz)
 
     implicit none
 
+    class(output_file), intent(inout) :: self
     character(len=*), intent(in) :: fname
     integer, intent(in) :: mgr, ngr
     integer, dimension(:,:), intent(in) :: mask
     real, dimension(:,:), intent(in) :: lon, lat
-    type(datetime), intent(in) :: time_in
     integer, intent(in), optional :: nz
 
     ! Working variables
-    double precision :: time
+    ! We set time to 0. becuase ncio requires some data for the initial time
+    double precision, parameter :: time = 0.
+    character(len=long_string) :: time_string
 
-    ! Get the time in netCDF format
-    time = netCDF_time(time_in)
+    ! Save the file name
+    self%fname = fname
 
     ! Create the file
-    call nc_create(fname, overwrite=.true., netcdf4=.true.)
+    call nc_create(self%fname, overwrite=.true., netcdf4=.true.)
 
     ! Write dimensions, either three or four, depending on inputs
-    call nc_write_dim(fname, "x", x=1, dx=1, nx=mgr)
-    call nc_write_dim(fname, "y", 1, nx=ngr)
+    call nc_write_dim(self%fname, "x", x=1, dx=1, nx=mgr)
+    call nc_write_dim(self%fname, "y", 1, nx=ngr)
     if ( present(nz) ) then
-      call nc_write_dim(fname, "z", 1, nx=nz)
+      call nc_write_dim(self%fname, "z", 1, nx=nz)
     endif
-    call nc_write_dim(fname, "time", time, unlimited=.true., units=trim(time_string), calendar=trim(calendar))
 
-    ! Write lon, lat, time, and mask variables
-    call nc_write(fname, "mask", mask, dim1="x", dim2="y")
-    call nc_write(fname, "longitude", lon, dim1="x", dim2="y", &
+    time_string = trim(self%time_unit)//" since "//self%reference_time
+    call nc_write_dim(self%fname, "time", time, unlimited=.true., units=trim(time_string), calendar=trim(self%calendar))
+
+    ! Write lon, lat, and mask variables
+    call nc_write(self%fname, "mask", mask, dim1="x", dim2="y")
+    call nc_write(self%fname, "longitude", lon, dim1="x", dim2="y", &
       long_name="longitude", standard_name="longitude", units="degrees_north")
-    call nc_write(fname, "latitude", lat, dim1="x", dim2="y", &
+    call nc_write(self%fname, "latitude", lat, dim1="x", dim2="y", &
       long_name="latitude", standard_name="latitude", units="degrees_north")
+
+    ! Set time slice to 0 so that the first append_time call will work
+    self%time_slice = 0
+
+    ! Set the initialisation flag
+    self%is_initialised = .true.
 
   end subroutine init_netCDF
 
@@ -132,91 +164,188 @@ double precision function netCDF_time(time_in) result(time_out)
 !   - I put a 0. at the first grid point (limitation of ncio)
 !   - Should return an object so we can store all the attributes (ncio looses them otherwise)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  subroutine init_netCDF_var(fname, vname, ndims, long_name, standard_name, units, grid_mapping, missing_value)
+  subroutine add_var(self, vname, ndims, long_name, standard_name, units, grid_mapping, missing_value)
 
     implicit none
 
-    character(len=*), intent(in) :: fname, vname
+    class(output_file), intent(inout) :: self
+    character(len=*), intent(in) :: vname
     integer, intent(in) :: ndims
     character(len=*), intent(in), optional :: long_name, standard_name, units, grid_mapping
     real, intent(in), optional :: missing_value
 
     ! Working variables
-    real, parameter :: dummy2D(1,1) = 0., dummy3D(1,1,1) = 0.
+    type(output_var) :: variable
 
-    if ( ndims .eq. 2 ) then
-      call nc_write(fname, vname, dummy2D, dim1="x", dim2="y", dim3="time", &
-        start=[1, 1, 1], count=[1, 1, 1], &
-        long_name=long_name, standard_name=standard_name, units=units, grid_mapping=grid_mapping, missing_value=missing_value)
-    elseif ( ndims .eq. 3 ) then
-      call nc_write(fname, vname, dummy3D, dim1="x", dim2="y", dim3="z", dim4="time", &
-        start=[1, 1, 1, 1], count=[1, 1, 1, 1], &
-        long_name=long_name, standard_name=standard_name, units=units, grid_mapping=grid_mapping, missing_value=missing_value)
-    else
-      stop "mod_io:init_netCDF_var: Only 2D and 3D variables supported"
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
     endif
 
-  end subroutine init_netCDF_var
+    call variable%init(vname, long_name, standard_name, units, grid_mapping, missing_value)
+
+    call self%push_back(self%var_list, variable)
+
+  end subroutine add_var
+
+  subroutine init_output_var(self, vname, long_name, standard_name, units, grid_mapping, missing_value)
+
+    class(output_var), intent(inout) :: self
+    character(len=*), intent(in) :: vname
+    character(len=*), optional, intent(in) :: long_name, standard_name, units, grid_mapping
+    real, optional, intent(in) :: missing_value
+
+    self%vname = vname
+
+    if ( present(long_name) ) then
+      self%long_name = long_name
+    else
+      self%long_name = ""
+    endif
+
+    if ( present(standard_name) ) then
+      self%standard_name = standard_name
+    else
+      self%standard_name = ""
+    endif
+
+    if ( present(units) ) then
+      self%units = units
+    else
+      self%units = ""
+    endif
+
+    if ( present(grid_mapping) ) then
+      self%grid_mapping = grid_mapping
+    else
+      self%grid_mapping = ""
+    endif
+
+    if ( present(missing_value) ) then
+      self%missing_value = missing_value
+    else
+      self%missing_value = -9999.
+    endif
+
+  end subroutine init_output_var
+
+  subroutine push_back(self, varlist, variable)
+
+    class(output_file), intent(inout) :: self
+    type(output_var), dimension(:), allocatable :: varlist
+    type(output_var), intent(in) :: variable
+
+    ! Working variables
+    integer :: i
+    type(output_var), dimension(:), allocatable :: tmp
+
+    if ( .not. allocated(varlist) ) then
+      allocate(varlist(1))
+      varlist(1) = variable
+    else
+      allocate(tmp, mold=varlist)
+      tmp = varlist
+
+      deallocate(varlist)
+      allocate( varlist(size(tmp)+1) )
+      do i=1, size(tmp)
+        varlist(i) = tmp(i)
+      enddo
+
+      varlist(size(varlist)) = variable
+    endif
+
+  end subroutine push_back
+
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routine to append to the netCDF time variable
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  subroutine append_netCDF_time(fname, time_in)
+  subroutine append_time(self, time_in)
 
     implicit none
 
-    character(len=*), intent(in) :: fname
+    class(output_file), intent(inout) :: self
     type(datetime), intent(in) :: time_in
 
     ! Working variables
-    integer :: time_slice
     double precision :: time
 
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
+    endif
+
     ! Get the time in netCDF format
-    time = netCDF_time(time_in)
+    time = netCDF_time(self, time_in)
 
-    time_slice = nc_size(fname, "time")
+    ! Increment the time slice
+    self%time_slice = self%time_slice + 1
 
-    call nc_write(fname, "time", time, dim1="time", start=[time_slice+1], count=[1])
+    call nc_write(self%fname, "time", time, dim1="time", start=[self%time_slice], count=[1])
 
-  end subroutine append_netCDF_time
+  end subroutine append_time
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routines to append to netCDF variables
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  subroutine write_netCDF_2D(fname, vname, values)
+  subroutine append_var_2D(self, vname, values)
 
     implicit none
 
-    character(len=*), intent(in) :: fname, vname
+    class(output_file) :: self
+    character(len=*), intent(in) :: vname
     real, dimension(:,:), intent(in) :: values
 
     ! Working variables
-    integer :: time_slice
+    integer :: i
 
-    time_slice = nc_size(fname, "time")
-    call nc_write(fname, vname, values, dim1="x", dim2="y", dim3="time", &
-      start=[1,1,time_slice], count=[size(values,1), size(values,2), 1])
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
+    endif
 
-  end subroutine write_netCDF_2D
+    do i = 1, size(self%var_list)
+      if ( vname .eq. self%var_list(i)%vname ) then
+        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="time", &
+          start=[1,1,self%time_slice], count=[size(values,1), size(values,2), 1], &
+          long_name=self%var_list(i)%long_name,                                   &
+          standard_name=self%var_list(i)%standard_name,                           &
+          units=self%var_list(i)%units,                                           &
+          grid_mapping=self%var_list(i)%grid_mapping,                             &
+          missing_value=self%var_list(i)%missing_value)
+      endif
+    enddo
 
-  subroutine write_netCDF_3D(fname, vname, values)
+  end subroutine append_var_2D
+
+  subroutine append_var_3D(self, vname, values)
 
     implicit none
 
-    character(len=*), intent(in) :: fname, vname
+    class(output_file) :: self
+    character(len=*), intent(in) :: vname
     real, dimension(:,:,:), intent(in) :: values
 
     ! Working variables
-    integer :: time_slice
+    integer :: i
 
-    time_slice = nc_size(fname, "time")
-    call nc_write(fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time", &
-      start=[1,1,1,time_slice], count=[size(values,1), size(values,2), size(values,3), 1])
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
+    endif
 
-  end subroutine write_netCDF_3D
+    do i = 1, size(self%var_list)
+      if ( vname .eq. self%var_list(i)%vname ) then
+        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
+          start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
+          long_name=self%var_list(i)%long_name,                                                       &
+          standard_name=self%var_list(i)%standard_name,                                               &
+          units=self%var_list(i)%units,                                                               &
+          grid_mapping=self%var_list(i)%grid_mapping,                                                 &
+          missing_value=self%var_list(i)%missing_value)
+      endif
+    enddo
+
+  end subroutine append_var_3D
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routine to read the grid - lon, lat, and mask
@@ -236,7 +365,7 @@ double precision function netCDF_time(time_in) result(time_out)
 
     ! Working variables
     integer, dimension(:), allocatable :: dimlens
-    character(len=32), dimension(:), allocatable :: dimnames
+    character(len=short_string), dimension(:), allocatable :: dimnames
 
     ! get the dims
     call nc_dims(fname, lon_name, dimnames, dimlens)
@@ -266,7 +395,7 @@ double precision function netCDF_time(time_in) result(time_out)
 !   - TODO: Add the third dimension
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-  subroutine init(self, varname, lon, lat, time)
+  subroutine init_input_var(self, varname, lon, lat, time)
 
     implicit none
 
@@ -280,8 +409,8 @@ double precision function netCDF_time(time_in) result(time_out)
     integer :: i, j
     real, dimension(:,:), allocatable :: lon_fx
     real, dimension(:), allocatable :: elon, elat
-    character(len=32), dimension(:), allocatable :: dimnames
-    character(len=1024) :: fname
+    character(len=short_string), dimension(:), allocatable :: dimnames
+    character(len=long_string) :: fname
 
     ! Save the variable name and lon and lat in the object
     self%vname = varname
@@ -289,17 +418,17 @@ double precision function netCDF_time(time_in) result(time_out)
     ! Calculate weights:
     ! Deduce the file name
     write(fname, "(i4)") time%getYear()
-    fname = trim(ERA5_prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
+    fname = trim(self%prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
 
     ! get the dims and allocate and read from file
-    call nc_dims(fname, ERA5_lon_name, dimnames, dimlens)
+    call nc_dims(fname, self%lon_name, dimnames, dimlens)
     allocate(elon(dimlens(1)+1))
-    call nc_read(fname, ERA5_lon_name, elon(1:dimlens(1)))
+    call nc_read(fname, self%lon_name, elon(1:dimlens(1)))
     elon(dimlens(1)+1) = 360. ! to get periodic boundary
 
-    call nc_dims(fname, ERA5_lat_name, dimnames, dimlens)
+    call nc_dims(fname, self%lat_name, dimnames, dimlens)
     allocate(elat(dimlens(1)))
-    call nc_read(fname, ERA5_lat_name, elat)
+    call nc_read(fname, self%lat_name, elat)
 
     ! We need input longitudes in [0, 360] - like ERA
     allocate(lon_fx, mold=lon)
@@ -319,7 +448,7 @@ double precision function netCDF_time(time_in) result(time_out)
     ! Allocate data array
     allocate( self%data2D( size(lat,1), size(lat,2) ) )
 
-  end subroutine init
+  end subroutine init_input_var
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Read and interpolate input
@@ -337,14 +466,14 @@ double precision function netCDF_time(time_in) result(time_out)
     integer, allocatable :: dimlens(:)
     integer :: time_slice, i, j
     real, dimension(:,:), allocatable :: data_ll
-    character(len=32), dimension(:), allocatable :: dimnames
-    character(len=1024) :: fname
+    character(len=short_string), dimension(:), allocatable :: dimnames
+    character(len=long_string) :: fname
     type(datetime) :: t0
     type(timedelta) :: dt
 
     ! Deduce the file name
     write(fname, "(i4)") time%getYear()
-    fname = trim(ERA5_prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
+    fname = trim(self%prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
 
     ! Deduce the time slice
     t0 = datetime(time%getYear(), 01, 01)
