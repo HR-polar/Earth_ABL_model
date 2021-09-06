@@ -103,249 +103,9 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !
-!                               OUTPUTS
+!                               INPUTS
 !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! Routine to initialise a netCDF file
-!   - We write the x, y, and time dimensions, mask, and lat/lon coords
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-  subroutine init_netCDF(self, fname, mgr, ngr, mask, lon, lat, nz)
-
-    implicit none
-
-    class(output_file), intent(inout) :: self
-    character(len=*), intent(in) :: fname
-    integer, intent(in) :: mgr, ngr
-    integer, dimension(:,:), intent(in) :: mask
-    real, dimension(:,:), intent(in) :: lon, lat
-    integer, intent(in), optional :: nz
-
-    ! Working variables
-    ! We set time to 0. becuase ncio requires some data for the initial time
-    double precision, parameter :: time = 0.
-    character(len=long_string) :: time_string
-
-    ! Save the file name
-    self%fname = fname
-
-    ! Create the file
-    call nc_create(self%fname, overwrite=.true., netcdf4=.true.)
-
-    ! Write dimensions, either three or four, depending on inputs
-    call nc_write_dim(self%fname, "x", x=1, dx=1, nx=mgr)
-    call nc_write_dim(self%fname, "y", 1, nx=ngr)
-    if ( present(nz) ) then
-      call nc_write_dim(self%fname, "z", 1, nx=nz)
-    endif
-
-    time_string = trim(self%time_unit)//" since "//self%reference_time
-    call nc_write_dim(self%fname, "time", time, unlimited=.true., units=trim(time_string), calendar=trim(self%calendar))
-
-    ! Write lon, lat, and mask variables
-    call nc_write(self%fname, "mask", mask, dim1="x", dim2="y")
-    call nc_write(self%fname, "longitude", lon, dim1="x", dim2="y", &
-      long_name="longitude", standard_name="longitude", units="degrees_north")
-    call nc_write(self%fname, "latitude", lat, dim1="x", dim2="y", &
-      long_name="latitude", standard_name="latitude", units="degrees_north")
-
-    ! Set time slice to 0 so that the first append_time call will work
-    self%time_slice = 0
-
-    ! Set the initialisation flag
-    self%is_initialised = .true.
-
-  end subroutine init_netCDF
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! Routine to create a new netCDF variable.
-!   - I put a 0. at the first grid point (limitation of ncio)
-!   - Should return an object so we can store all the attributes (ncio looses them otherwise)
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  subroutine add_var(self, vname, ndims, long_name, standard_name, units, grid_mapping, missing_value)
-
-    implicit none
-
-    class(output_file), intent(inout) :: self
-    character(len=*), intent(in) :: vname
-    integer, intent(in) :: ndims
-    character(len=*), intent(in), optional :: long_name, standard_name, units, grid_mapping
-    real, intent(in), optional :: missing_value
-
-    ! Working variables
-    type(output_var) :: variable
-
-    if ( .not. self%is_initialised ) then
-      stop "mod_io: add_var: file object not initialised"
-    endif
-
-    call variable%init(vname, long_name, standard_name, units, grid_mapping, missing_value)
-
-    call self%push_back(self%var_list, variable)
-
-  end subroutine add_var
-
-  subroutine init_output_var(self, vname, long_name, standard_name, units, grid_mapping, missing_value)
-
-    class(output_var), intent(inout) :: self
-    character(len=*), intent(in) :: vname
-    character(len=*), optional, intent(in) :: long_name, standard_name, units, grid_mapping
-    real, optional, intent(in) :: missing_value
-
-    self%vname = vname
-
-    if ( present(long_name) ) then
-      self%long_name = long_name
-    else
-      self%long_name = ""
-    endif
-
-    if ( present(standard_name) ) then
-      self%standard_name = standard_name
-    else
-      self%standard_name = ""
-    endif
-
-    if ( present(units) ) then
-      self%units = units
-    else
-      self%units = ""
-    endif
-
-    if ( present(grid_mapping) ) then
-      self%grid_mapping = grid_mapping
-    else
-      self%grid_mapping = ""
-    endif
-
-    if ( present(missing_value) ) then
-      self%missing_value = missing_value
-    else
-      self%missing_value = -9999.
-    endif
-
-  end subroutine init_output_var
-
-  subroutine push_back(self, varlist, variable)
-
-    class(output_file), intent(inout) :: self
-    type(output_var), dimension(:), allocatable :: varlist
-    type(output_var), intent(in) :: variable
-
-    ! Working variables
-    integer :: i
-    type(output_var), dimension(:), allocatable :: tmp
-
-    if ( .not. allocated(varlist) ) then
-      allocate(varlist(1))
-      varlist(1) = variable
-    else
-      allocate(tmp, mold=varlist)
-      tmp = varlist
-
-      deallocate(varlist)
-      allocate( varlist(size(tmp)+1) )
-      do i=1, size(tmp)
-        varlist(i) = tmp(i)
-      enddo
-
-      varlist(size(varlist)) = variable
-    endif
-
-  end subroutine push_back
-
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! Routine to append to the netCDF time variable
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-  subroutine append_time(self, time_in)
-
-    implicit none
-
-    class(output_file), intent(inout) :: self
-    type(datetime), intent(in) :: time_in
-
-    ! Working variables
-    double precision :: time
-
-    if ( .not. self%is_initialised ) then
-      stop "mod_io: add_var: file object not initialised"
-    endif
-
-    ! Get the time in netCDF format
-    time = netCDF_time(self, time_in)
-
-    ! Increment the time slice
-    self%time_slice = self%time_slice + 1
-
-    call nc_write(self%fname, "time", time, dim1="time", start=[self%time_slice], count=[1])
-
-  end subroutine append_time
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! Routines to append to netCDF variables
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-  subroutine append_var_2D(self, vname, values)
-
-    implicit none
-
-    class(output_file) :: self
-    character(len=*), intent(in) :: vname
-    real, dimension(:,:), intent(in) :: values
-
-    ! Working variables
-    integer :: i
-
-    if ( .not. self%is_initialised ) then
-      stop "mod_io: add_var: file object not initialised"
-    endif
-
-    do i = 1, size(self%var_list)
-      if ( vname .eq. self%var_list(i)%vname ) then
-        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="time", &
-          start=[1,1,self%time_slice], count=[size(values,1), size(values,2), 1], &
-          long_name=self%var_list(i)%long_name,                                   &
-          standard_name=self%var_list(i)%standard_name,                           &
-          units=self%var_list(i)%units,                                           &
-          grid_mapping=self%var_list(i)%grid_mapping,                             &
-          missing_value=self%var_list(i)%missing_value)
-      endif
-    enddo
-
-  end subroutine append_var_2D
-
-  subroutine append_var_3D(self, vname, values)
-
-    implicit none
-
-    class(output_file) :: self
-    character(len=*), intent(in) :: vname
-    real, dimension(:,:,:), intent(in) :: values
-
-    ! Working variables
-    integer :: i
-
-    if ( .not. self%is_initialised ) then
-      stop "mod_io: add_var: file object not initialised"
-    endif
-
-    do i = 1, size(self%var_list)
-      if ( vname .eq. self%var_list(i)%vname ) then
-        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
-          start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
-          long_name=self%var_list(i)%long_name,                                                       &
-          standard_name=self%var_list(i)%standard_name,                                               &
-          units=self%var_list(i)%units,                                                               &
-          grid_mapping=self%var_list(i)%grid_mapping,                                                 &
-          missing_value=self%var_list(i)%missing_value)
-      endif
-    enddo
-
-  end subroutine append_var_3D
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routine to read the grid - lon, lat, and mask
@@ -385,13 +145,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
   end subroutine read_grid
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!
-!                               INPUTS
-!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! Initialise the iput_var_2D object
+! Initialise the iput_var object
 !   - TODO: Add the third dimension
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -531,7 +285,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Bilinear interpolation in lat/lon - "it's good enough for government work"
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  ! Pre-calculate weights
+! Pre-calculate weights
   subroutine calc_weights(self, lon_in, lat_in, lon_out, lat_out)
 
     implicit none
@@ -568,7 +322,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
   end subroutine calc_weights
 
-  ! Do the interpolation
+! Do the interpolation
   subroutine interp2D(self, data_in)
 
     implicit none
@@ -630,5 +384,253 @@ double precision function netCDF_time(self, time_in) result(time_out)
     enddo
 
   end subroutine bisect
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!
+!                               OUTPUTS
+!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Routine to create a new netCDF variable (object)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine init_output_var(self, vname, long_name, standard_name, units, grid_mapping, missing_value)
+
+    class(output_var), intent(inout) :: self
+    character(len=*), intent(in) :: vname
+    character(len=*), optional, intent(in) :: long_name, standard_name, units, grid_mapping
+    real, optional, intent(in) :: missing_value
+
+    self%vname = vname
+
+    if ( present(long_name) ) then
+      self%long_name = long_name
+    else
+      self%long_name = ""
+    endif
+
+    if ( present(standard_name) ) then
+      self%standard_name = standard_name
+    else
+      self%standard_name = ""
+    endif
+
+    if ( present(units) ) then
+      self%units = units
+    else
+      self%units = ""
+    endif
+
+    if ( present(grid_mapping) ) then
+      self%grid_mapping = grid_mapping
+    else
+      self%grid_mapping = ""
+    endif
+
+    if ( present(missing_value) ) then
+      self%missing_value = missing_value
+    else
+      self%missing_value = -9999.
+    endif
+
+  end subroutine init_output_var
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Routine to initialise a netCDF file
+!   - We write the x, y, and time dimensions, mask, and lat/lon coords
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine init_netCDF(self, fname, mgr, ngr, mask, lon, lat, nz)
+
+    implicit none
+
+    class(output_file), intent(inout) :: self
+    character(len=*), intent(in) :: fname
+    integer, intent(in) :: mgr, ngr
+    integer, dimension(:,:), intent(in) :: mask
+    real, dimension(:,:), intent(in) :: lon, lat
+    integer, intent(in), optional :: nz
+
+    ! Working variables
+    ! We set time to 0. becuase ncio requires some data for the initial time
+    double precision, parameter :: time = 0.
+    character(len=long_string) :: time_string
+
+    ! Save the file name
+    self%fname = fname
+
+    ! Create the file
+    call nc_create(self%fname, overwrite=.true., netcdf4=.true.)
+
+    ! Write dimensions, either three or four, depending on inputs
+    call nc_write_dim(self%fname, "x", x=1, dx=1, nx=mgr)
+    call nc_write_dim(self%fname, "y", 1, nx=ngr)
+    if ( present(nz) ) then
+      call nc_write_dim(self%fname, "z", 1, nx=nz)
+    endif
+
+    time_string = trim(self%time_unit)//" since "//self%reference_time
+    call nc_write_dim(self%fname, "time", time, unlimited=.true., units=trim(time_string), calendar=trim(self%calendar))
+
+    ! Write lon, lat, and mask variables
+    call nc_write(self%fname, "mask", mask, dim1="x", dim2="y")
+    call nc_write(self%fname, "longitude", lon, dim1="x", dim2="y", &
+      long_name="longitude", standard_name="longitude", units="degrees_north")
+    call nc_write(self%fname, "latitude", lat, dim1="x", dim2="y", &
+      long_name="latitude", standard_name="latitude", units="degrees_north")
+
+    ! Set time slice to 0 so that the first append_time call will work
+    self%time_slice = 0
+
+    ! Set the initialisation flag
+    self%is_initialised = .true.
+
+  end subroutine init_netCDF
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Routine to add a netCDF variable to the file object
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine add_var(self, vname, ndims, long_name, standard_name, units, grid_mapping, missing_value)
+
+    implicit none
+
+    class(output_file), intent(inout) :: self
+    character(len=*), intent(in) :: vname
+    integer, intent(in) :: ndims
+    character(len=*), intent(in), optional :: long_name, standard_name, units, grid_mapping
+    real, intent(in), optional :: missing_value
+
+    ! Working variables
+    type(output_var) :: variable
+
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
+    endif
+
+    call variable%init(vname, long_name, standard_name, units, grid_mapping, missing_value)
+
+    call self%push_back(self%var_list, variable)
+
+  end subroutine add_var
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Routine to append to the netCDF time variable
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine append_time(self, time_in)
+
+    implicit none
+
+    class(output_file), intent(inout) :: self
+    type(datetime), intent(in) :: time_in
+
+    ! Working variables
+    double precision :: time
+
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
+    endif
+
+    ! Get the time in netCDF format
+    time = netCDF_time(self, time_in)
+
+    ! Increment the time slice
+    self%time_slice = self%time_slice + 1
+
+    call nc_write(self%fname, "time", time, dim1="time", start=[self%time_slice], count=[1])
+
+  end subroutine append_time
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Routines to append to netCDF variables
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! 2D version
+  subroutine append_var_2D(self, vname, values)
+
+    implicit none
+
+    class(output_file) :: self
+    character(len=*), intent(in) :: vname
+    real, dimension(:,:), intent(in) :: values
+
+    ! Working variables
+    integer :: i
+
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
+    endif
+
+    do i = 1, size(self%var_list)
+      if ( vname .eq. self%var_list(i)%vname ) then
+        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="time", &
+          start=[1,1,self%time_slice], count=[size(values,1), size(values,2), 1], &
+          long_name=self%var_list(i)%long_name,                                   &
+          standard_name=self%var_list(i)%standard_name,                           &
+          units=self%var_list(i)%units,                                           &
+          grid_mapping=self%var_list(i)%grid_mapping,                             &
+          missing_value=self%var_list(i)%missing_value)
+      endif
+    enddo
+
+  end subroutine append_var_2D
+
+! 2D version
+  subroutine append_var_3D(self, vname, values)
+
+    implicit none
+
+    class(output_file) :: self
+    character(len=*), intent(in) :: vname
+    real, dimension(:,:,:), intent(in) :: values
+
+    ! Working variables
+    integer :: i
+
+    if ( .not. self%is_initialised ) then
+      stop "mod_io: add_var: file object not initialised"
+    endif
+
+    do i = 1, size(self%var_list)
+      if ( vname .eq. self%var_list(i)%vname ) then
+        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
+          start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
+          long_name=self%var_list(i)%long_name,                                                       &
+          standard_name=self%var_list(i)%standard_name,                                               &
+          units=self%var_list(i)%units,                                                               &
+          grid_mapping=self%var_list(i)%grid_mapping,                                                 &
+          missing_value=self%var_list(i)%missing_value)
+      endif
+    enddo
+
+  end subroutine append_var_3D
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! std::vector.push_back (kind of)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine push_back(self, varlist, variable)
+
+    class(output_file), intent(inout) :: self
+    type(output_var), dimension(:), allocatable :: varlist
+    type(output_var), intent(in) :: variable
+
+    ! Working variables
+    integer :: i
+    type(output_var), dimension(:), allocatable :: tmp
+
+    if ( .not. allocated(varlist) ) then
+      allocate(varlist(1))
+      varlist(1) = variable
+    else
+      allocate(tmp, mold=varlist)
+      tmp = varlist
+
+      deallocate(varlist)
+      allocate( varlist(size(tmp)+1) )
+      do i=1, size(tmp)
+        varlist(i) = tmp(i)
+      enddo
+
+      varlist(size(varlist)) = variable
+    endif
+
+  end subroutine push_back
 
 end module io
