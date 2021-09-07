@@ -64,10 +64,11 @@ module io
       procedure, public :: init=>init_netCDF
       procedure, public :: add_var, append_time
       generic, public :: append_var => append_var_2D,append_var_3D
-      procedure, private :: append_var_2D,append_var_3D,netCDF_time,push_back
+      procedure, private :: append_var_2D,append_var_3D,netCDF_time
   end type
 
   public :: read_grid, output_file, input_var
+  private :: bisect, push_back
 
   contains
 
@@ -257,6 +258,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
 !   - The array getter is not efficient, as it copies the data on output
 !   - TODO: Add 3D getter for columns
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! get_point
   function get_point(self, i, j) result(data)
 
     implicit none
@@ -270,6 +272,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
   end function get_point
 
+! get_array
   function get_array(self) result(data)
 
     implicit none
@@ -510,7 +513,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
     call variable%init(vname, long_name, standard_name, units, grid_mapping, missing_value)
 
-    call self%push_back(self%var_list, variable)
+    self%var_list = push_back(self%var_list, variable)
 
   end subroutine add_var
 
@@ -625,32 +628,29 @@ double precision function netCDF_time(self, time_in) result(time_out)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! std::vector.push_back (kind of)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  subroutine push_back(self, varlist, variable)
+  function push_back(varlist_in, variable) result(varlist_out)
 
-    class(output_file), intent(inout) :: self
-    type(output_var), dimension(:), allocatable :: varlist
+    type(output_var), dimension(:), allocatable, intent(in) :: varlist_in
     type(output_var), intent(in) :: variable
+
+    type(output_var), dimension(:), allocatable :: varlist_out
 
     ! Working variables
     integer :: i
-    type(output_var), dimension(:), allocatable :: tmp
 
-    if ( .not. allocated(varlist) ) then
-      allocate(varlist(1))
-      varlist(1) = variable
+    if ( .not. allocated(varlist_in) ) then
+      allocate(varlist_out(1))
+      varlist_out(1) = variable
     else
-      allocate(tmp, mold=varlist)
-      tmp = varlist
+      allocate(varlist_out(size(varlist_in)+1))
 
-      deallocate(varlist)
-      allocate( varlist(size(tmp)+1) )
-      do i=1, size(tmp)
-        varlist(i) = tmp(i)
+      do i=1, size(varlist_in)
+        varlist_out(i) = varlist_in(i)
       enddo
 
-      varlist(size(varlist)) = variable
+      varlist_out(size(varlist_in)) = variable
     endif
 
-  end subroutine push_back
+  end function push_back
 
 end module io
