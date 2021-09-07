@@ -370,15 +370,8 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
     test = (b-a)/2
     do while ( b-a .gt. 1 )
-      ! check if we're increasing or decreasing
-      ! The only difference between the two cases is the .gt./.lt. in the if clause - can this be done more elegantly?
-      if ( is_increasing ) then
-        check = vx(test) .gt. x
-      else
-        check = vx(test) .lt. x
-      endif
-
-      if ( check ) then
+      ! use .eqv. to account for both increasing and decreasing vx
+      if ( is_increasing .eqv. vx(test) .gt. x ) then
         b = test
         test = b - (b-a)/2
       else
