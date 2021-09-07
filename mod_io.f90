@@ -36,6 +36,7 @@ module io
   ! An output variable (private)
   type :: output_var
 
+    logical, private :: missing_set
     real, private :: missing_value
     character(len=short_string), private :: vname, long_name, standard_name, units, grid_mapping
 
@@ -429,8 +430,9 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
     if ( present(missing_value) ) then
       self%missing_value = missing_value
+      self%missing_set = .true.
     else
-      self%missing_value = -9999.
+      self%missing_set = .false.
     endif
 
   end subroutine init_output_var
@@ -560,19 +562,28 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
     do i = 1, size(self%var_list)
       if ( vname .eq. self%var_list(i)%vname ) then
-        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="time", &
-          start=[1,1,self%time_slice], count=[size(values,1), size(values,2), 1], &
-          long_name=self%var_list(i)%long_name,                                   &
-          standard_name=self%var_list(i)%standard_name,                           &
-          units=self%var_list(i)%units,                                           &
-          grid_mapping=self%var_list(i)%grid_mapping,                             &
-          missing_value=self%var_list(i)%missing_value)
+        if ( self%var_list(i)%missing_set ) then
+          call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="time", &
+            start=[1,1,self%time_slice], count=[size(values,1), size(values,2), 1], &
+            long_name=self%var_list(i)%long_name,                                   &
+            standard_name=self%var_list(i)%standard_name,                           &
+            units=self%var_list(i)%units,                                           &
+            grid_mapping=self%var_list(i)%grid_mapping,                             &
+            missing_value=self%var_list(i)%missing_value)
+        else
+          call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="time", &
+            start=[1,1,self%time_slice], count=[size(values,1), size(values,2), 1], &
+            long_name=self%var_list(i)%long_name,                                   &
+            standard_name=self%var_list(i)%standard_name,                           &
+            units=self%var_list(i)%units,                                           &
+            grid_mapping=self%var_list(i)%grid_mapping)
+        endif
       endif
     enddo
 
   end subroutine append_var_2D
 
-! 2D version
+! 3D version
   subroutine append_var_3D(self, vname, values)
 
     implicit none
@@ -590,13 +601,22 @@ double precision function netCDF_time(self, time_in) result(time_out)
 
     do i = 1, size(self%var_list)
       if ( vname .eq. self%var_list(i)%vname ) then
-        call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
-          start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
-          long_name=self%var_list(i)%long_name,                                                       &
-          standard_name=self%var_list(i)%standard_name,                                               &
-          units=self%var_list(i)%units,                                                               &
-          grid_mapping=self%var_list(i)%grid_mapping,                                                 &
-          missing_value=self%var_list(i)%missing_value)
+        if ( self%var_list(i)%missing_set ) then
+          call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
+            start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
+            long_name=self%var_list(i)%long_name,                                                       &
+            standard_name=self%var_list(i)%standard_name,                                               &
+            units=self%var_list(i)%units,                                                               &
+            grid_mapping=self%var_list(i)%grid_mapping,                                                 &
+            missing_value=self%var_list(i)%missing_value)
+        else
+          call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
+            start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
+            long_name=self%var_list(i)%long_name,                                                       &
+            standard_name=self%var_list(i)%standard_name,                                               &
+            units=self%var_list(i)%units,                                                               &
+            grid_mapping=self%var_list(i)%grid_mapping)
+        endif
       endif
     enddo
 
