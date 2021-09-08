@@ -366,9 +366,9 @@ double precision function netCDF_time(self, time_in) result(time_out)
     do i = 1, size(self%data2D,1)
       do j = 1, size(self%data2D,2)
         self%data2D(i,j) = data_in( self%a_lon(i,j), self%a_lat(i,j) ) * (1-self%r(i,j))*(1-self%s(i,j)) &
-                         + data_in( self%a_lon(i,j), self%b_lat(i,j) ) *     self%r(i,j)*(1-self%s(i,j)) &
+                         + data_in( self%b_lon(i,j), self%a_lat(i,j) ) *     self%r(i,j)*(1-self%s(i,j)) &
                          + data_in( self%b_lon(i,j), self%b_lat(i,j) ) *     self%r(i,j)*self%s(i,j)     &
-                         + data_in( self%b_lon(i,j), self%a_lat(i,j) ) * (1-self%r(i,j))*self%s(i,j)
+                         + data_in( self%a_lon(i,j), self%b_lat(i,j) ) * (1-self%r(i,j))*self%s(i,j)
       enddo
     enddo
 
