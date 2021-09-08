@@ -11,7 +11,7 @@
 module io
 
   use ncio, only: nc_create, nc_write_dim, nc_write, nc_size, nc_dims, nc_read
-  use datetime_module, only: datetime, timedelta, strptime
+  use datetime_module, only: datetime, timedelta, strptime, c_strftime
 
   implicit none
 
@@ -24,13 +24,13 @@ module io
     real, private, dimension(:,:), allocatable :: data2D, r, s
     character(len=short_string), private :: vname
 
-    character(len=37), private :: prefix = "data/ERA5_"
+    character(len=long_string), private :: fname_format = "data/ERA5_${var}_y%Y.nc"
     character(len=9), private :: lon_name = "longitude"
     character(len=8), private :: lat_name = "latitude"
 
     contains
       procedure, public :: init=>init_input_var, read_input, get_point, get_array
-      procedure, private :: calc_weights, interp2D
+      procedure, private :: calc_weights, interp2D, get_filename
   end type
 
   ! An output variable (private)
@@ -168,13 +168,11 @@ double precision function netCDF_time(self, time_in) result(time_out)
     character(len=short_string), dimension(:), allocatable :: dimnames
     character(len=long_string) :: fname
 
-    ! Save the variable name and lon and lat in the object
+    ! Save the variable name the object
     self%vname = varname
 
-    ! Calculate weights:
-    ! Deduce the file name
-    write(fname, "(i4)") time%getYear()
-    fname = trim(self%prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
+    ! Get file name - we can't save it, because it may change with time
+    fname = self%get_filename(time)
 
     ! get the dims and allocate and read from file
     call nc_dims(fname, self%lon_name, dimnames, dimlens)
@@ -198,6 +196,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
       enddo
     enddo
 
+    ! Calculate weights:
     call calc_weights(self, elon, elat, lon_fx, lat)
 
     ! TODO: Add 3D here
@@ -227,9 +226,8 @@ double precision function netCDF_time(self, time_in) result(time_out)
     type(datetime) :: t0
     type(timedelta) :: dt
 
-    ! Deduce the file name
-    write(fname, "(i4)") time%getYear()
-    fname = trim(self%prefix)//trim(self%vname)//"_y"//trim(fname)//".nc"
+    ! Get file name
+    fname = self%get_filename(time)
 
     ! Deduce the time slice
     t0 = datetime(time%getYear(), 01, 01)
@@ -285,6 +283,33 @@ double precision function netCDF_time(self, time_in) result(time_out)
     data = self%data2D
 
   end function get_array
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Get the name of input file based on a format string
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  function get_filename(self, time) result(fname)
+
+    implicit none
+
+    class(input_var), intent(in) :: self
+    type(datetime), intent(in) :: time
+
+    ! The result
+    character(len=long_string) :: fname
+
+    ! Working variables
+    integer :: i
+
+    ! Use c_strftime to format the time part of the file name
+    i = c_strftime(fname, len(fname), self%fname_format, time%tm())
+
+    ! Replace ${var} with self%vname
+    i = index(fname, "${var}")
+    fname = fname(1:i-1)//trim(self%vname)//fname(i+6:len(fname))
+
+    return
+
+  end function get_filename
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Bilinear interpolation in lat/lon - "it's good enough for government work"
