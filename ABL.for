@@ -151,8 +151,8 @@ c---------Function used for calculating saturated specific humidity
 
 c===================Allocate arrays
 ! neXtSIM link: Grid size and info will be read in from file
-      mgr = 1
-      ngr = 1
+      mgr = 2
+      ngr = 2
 
 ! Inputs from forcing files
       ALLOCATE(t_in(mgr,ngr,nj))
@@ -282,8 +282,6 @@ c---------Calculating initial u* etc from Geostrophic Drag Laws
 ! neXtSIM link: fc is no longer a constant!
         CALL subgdl(fc,z0,angle,aconst,ustar)
 
-! betag is in the flxsrf common block and needs to be updated for every
-! grid point and at every time step
         ustar_2D(igr,jgr) = ustar
 
         call subprof(p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),tvis,
@@ -443,7 +441,10 @@ c
       do 9996 igr=1,mgr
       do 9996 jgr=1,ngr
 
+! betag and ustar are in the flxsrf common block and needs to be updated
+! for every grid point and at every time step
       betag=grav/t(igr,jgr,1)
+      ustar=ustar_2D(igr,jgr)
 c---------Calculate celestial mechanics for the current solar day
       ar=slon*rpi                   ! Areocentric longitude in radians
       ar=2*pi*(jd+311)/365          ! Model begins 9th November, Pielke 1984 p211
@@ -700,6 +701,9 @@ c      end do
 c      do i=nj,1,-1
 c        tice(i)=tice(i)+tice(i+1)
 c      end do
+
+      ustar_2D(igr,jgr) = ustar
+
 c
  9996 CONTINUE                           ! This is the spatial do-loop
 
