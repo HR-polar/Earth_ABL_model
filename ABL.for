@@ -72,6 +72,11 @@ c***********************************************************************
       REAL(KIND=4), DIMENSION(:,:,:), ALLOCATABLE ::
      1      tsoil
 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Diagnostic variables that we want to store and output
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Full column
+      REAL(KIND=4), DIMENSION(:,:,:), ALLOCATABLE :: theta_out
 
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
@@ -161,11 +166,11 @@ c===================Allocate arrays
       ALLOCATE(sdlw(mgr,ngr))
       ALLOCATE(sdsw, q0, t0, mold=sdlw)
 
-! Prognostic variables
+! Prognostic variables (and theta)
       ALLOCATE(ustar_2D(mgr,ngr))
       ALLOCATE(tld(mgr,ngr,nj))
       ALLOCATE(u, v, t, q, qi, e, ep, uw, vw, wt, wq, wqi, km, kh, p,
-     1  qold, qiold, mold = tld)
+     1  qold, qiold, theta_out, mold = tld)
 
 ! Soil model
       ALLOCATE(tsoil(mgr,ngr,ni))
@@ -291,6 +296,8 @@ c---------Calculating initial u* etc from Geostrophic Drag Laws
      4      tl,tld(igr,jgr,:),rnet,dedzt,zm,zt,aconst,angle,cp,rgas,rpi,
      5      tgamma,nj)
 
+        theta_out(igr,jgr,:) = theta
+
 !       wlo=-vk*betag*wt(igr,jgr,1)/ustar(igr,jgr)**3
 c
         call subsoilt(dedzs,tsoil(igr,jgr,:),zsoil,dzeta,t(igr,jgr,1),
@@ -304,8 +311,8 @@ c---------Output initial data and profiles
         write(11,'(/,"   blh,nj,nv     =",e14.6,2i10)') ztop,nj,nv
         close(11)
         open(11,file='MEAN-INI.dat')
-        call meanout(zm,zt,u(igr,jgr,:),v(igr,jgr,:),t(igr,jgr,:),theta,
-     1      p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),z0,nj,11)
+        call meanout(zm,zt,u(igr,jgr,:),v(igr,jgr,:),t(igr,jgr,:),
+     1      theta,p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),z0,nj,11)
         close(11)
         open(12,file='TURB-INI.dat')
         call turbout(zm,zt,e(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),
@@ -387,8 +394,8 @@ c---------Open file for data output during time integrations
      1 d1,U2,V2,SQRT(U2^2+V2^2),forcing""")')
         WRITE(32,'(20e14.6)') 0.,e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,
      1      vw0,wt0,km(igr,jgr,1),kh(igr,jgr,1),
-     1 -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,theta(1),theta(2),tl(1),
-     2      tld(igr,jgr,1),
+     1 -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,theta_out(igr,jgr,:),
+     2      theta_out(igr,jgr,:),tl(1),tld(igr,jgr,1),
      3      u(igr,jgr,2),v(igr,jgr,2),
      4      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
      5      forcing
@@ -402,7 +409,8 @@ c---------Open file for data output during time integrations
         do j=1,nj
           WRITE(38,'(19e14.6)') 0.,deta*(j-1),zm(j),u(igr,jgr,j),
      1      v(igr,jgr,j),
-     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),theta(j)
+     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),
+     3      theta_out(igr,jgr,:)
         end do
 
         OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
@@ -475,6 +483,7 @@ c---------Converting temperature to potential temperature
         theta(j)=t(igr,jgr,j)*(p(igr,jgr,1)/p(igr,jgr,j))**(rgas/cp)
       enddo
       q(igr,jgr,1)=0.01!16351195        ! specified constant ground wetness to q(1)
+      theta_out(igr,jgr,:) = theta
 c      open (UNIT=55,FILE='q.DAT')
 c      write (55,*) q(1)
 c      close (55)
@@ -507,6 +516,7 @@ c---------Updating the solution
         e(igr,jgr,j)    =MAX(psi(j,6),emin)
         ep(igr,jgr,j)=(alpha*e(igr,jgr,j))**1.5/tld(igr,jgr,j)
 110   CONTINUE
+      theta_out(igr,jgr,:) = theta
 c
       do i=2,nj
         if (zm(j).gt.10000) then
@@ -602,9 +612,9 @@ c---------Outputing surface values
      1      hlw(2),hsw(2),rnet(2)
       IF( (jh.ge.7).AND.(jh.le.10) ) THEN
         WRITE(29,'(19e14.6)') ds*jm/hoursec+(jh-1.)+(jd-1.)*nhrs,
-     1      e(igr,jgr,:1),ustar_2D(igr,jgr),wt0,theta(1),theta(2),
-     2      u(igr,jgr,2),v(igr,jgr,2),p(igr,jgr,2),dlw,dsw,lw,sw,h0,e0,
-     3      gflux,hlw(2),hsw(2),rnet(2)
+     1      e(igr,jgr,:1),ustar_2D(igr,jgr),wt0,theta_out(igr,jgr,1),
+     2      theta_out(igr,jgr,2),u(igr,jgr,2),v(igr,jgr,2),p(igr,jgr,2),
+     3      dlw,dsw,lw,sw,h0,e0,gflux,hlw(2),hsw(2),rnet(2)
       ENDIF
 
       IF(MOD(jm,jmout).eq.0) then
@@ -618,10 +628,10 @@ c     6      -vk*betag*wt0/ustar**3,tl(1),tld(1),theta(1),theta(2),
 c     7      u(2),v(2),SQRT(u(2)*u(2)+v(2)*v(2))
         WRITE(31,'(19e14.6)') ds*jm/hoursec+(jh-1.)+(jd-1.)*nhrs,
      1      e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,wt0,wq0,wqi0,
-     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,theta(1),theta(2),tl(1),
-     3      tld(igr,jgr,1),u(igr,jgr,2),v(igr,jgr,2),
-     4      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
-     5      forcing
+     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,theta_out(igr,jgr,1),
+     3      theta_out(igr,jgr,2),tl(1),tld(igr,jgr,1),u(igr,jgr,2),
+     4      v(igr,jgr,2),SQRT(u(igr,jgr,2)*u(igr,jgr,2)
+     5          +v(igr,jgr,2)*v(igr,jgr,2)),forcing
 c---------Calculating Boundary-Layer Height
         ss05=.05*SQRT(uw(igr,jgr,1)*uw(igr,jgr,1)
      1          +vw(igr,jgr,1)*vw(igr,jgr,1))
@@ -640,15 +650,17 @@ c          ssz2=wt(j)
 
         WRITE(32,'(20e14.6)') ds*jm/hoursec+(jh-1.),
      1      e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,wt0,wq0,wqi0,
-     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,theta(1),theta(2),
-     3      tl(1),tld(igr,jgr,1),u(igr,jgr,2),v(igr,jgr,2),
-     4      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
-     5      forcing
+     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,
+     3      theta_out(igr,jgr,1),theta_out(igr,jgr,2),tl(1),
+     4      tld(igr,jgr,1),u(igr,jgr,2),v(igr,jgr,2),
+     5      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
+     6      forcing
 
         do j=1,nj
           WRITE(38,'(19e14.6)') ds*jm/hoursec+(jh-1.),
      1      deta*(j-1),zm(j),u(igr,jgr,j),v(igr,jgr,j),
-     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),theta(j)
+     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),
+     3      theta_out(igr,jgr,j)
         end do
 
         WRITE(39,'(19e14.6)') ds*jm/hoursec+(jh-1.),
@@ -757,7 +769,8 @@ c
      1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
      2                      CHAR(48+jh-j10*10)//'.dat')
           CALL meanout(zm,zt,u(igr,jgr,:),v(igr,jgr,:),t(igr,jgr,:),
-     1      theta,p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),z0,nj,55)
+     1      theta_out(igr,jgr,:),p(igr,jgr,:),q(igr,jgr,:),
+     2      qi(igr,jgr,:),z0,nj,55)
           CLOSE(55)
 
           OPEN(55,FILE='T-D'//CHAR(48+jd10)//
