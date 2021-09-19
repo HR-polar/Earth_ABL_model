@@ -27,5 +27,8 @@ $(OBJ): $(OBJ_DIR)/%.o : %.f90
 $(IOTEST): iotest.for $(OBJ)
 	$(FC) $(FFLAGS) $(LDFLAGS) $^ -o $@
 
+test: $(IOTEST)
+	./$(IOTEST)
+
 clean:
 	rm -rf $(OBJ_DIR) $(ABL) $(IOTEST)
