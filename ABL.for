@@ -22,6 +22,10 @@ c  zm(j)-  mean varable nodes coordinates (u, v, t, q & qi)            *
 c  zt(j)-  turbulent quantities (e, ep, uw, vw, wt, wq, wqi, km & kh)  *
 c***********************************************************************
       PROGRAM ABL
+
+      use io
+      use datetime_module, only: datetime, timedelta
+
       IMPLICIT none
       INTEGER nj,nv,nw,ni,ir
       PARAMETER(nj=241,nv=6,nw=0,ni=11,ir=121)
@@ -34,10 +38,9 @@ c***********************************************************************
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Grid information
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!      REAL(KIND=8), DIMENSION(:), ALLOCATABLE ::
-!    1       rlat
-
       INTEGER :: ngr, mgr, igr, jgr
+      INTEGER, DIMENSION(:,:), ALLOCATABLE :: mask
+      REAL(KIND=4), DIMENSION(:,:), ALLOCATABLE :: lat, lon
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Inputs from forcing files
@@ -77,6 +80,13 @@ c***********************************************************************
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Full column
       REAL(KIND=4), DIMENSION(:,:,:), ALLOCATABLE :: theta_out
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Output files
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      type(datetime) :: time
+      type(timedelta) :: dt
+      type(output_file) :: init_cond, srfv_all, SNetRad, Turb, Met
 
       REAL alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
       COMMON /consta/alpha,betag,ds,fc,grav,rl0,tg,ug,vg,vk,zero
@@ -155,9 +165,11 @@ c---------Function used for calculating saturated specific humidity
       EXTERNAL fnqs
 
 c===================Allocate arrays
-! neXtSIM link: Grid size and info will be read in from file
+! neXtSIM link: Grid size and info will be read in from file. Initial
+! time from namelist
       mgr = 2
       ngr = 2
+      time = datetime(2007,01,01)
 
 ! Inputs from forcing files
       ALLOCATE(t_in(mgr,ngr,nj))
@@ -171,6 +183,9 @@ c===================Allocate arrays
       ALLOCATE(tld(mgr,ngr,nj))
       ALLOCATE(u, v, t, q, qi, e, ep, uw, vw, wt, wq, wqi, km, kh, p,
      1  qold, qiold, theta_out, mold = tld)
+! Mask and grid info
+      ALLOCATE(lat, lon, mold=ustar_2D)
+      ALLOCATE(mask(mgr,ngr))
 
 ! Soil model
       ALLOCATE(tsoil(mgr,ngr,ni))
@@ -204,6 +219,11 @@ c===================Set constants
       rpi=pi/180.
       angv=2.*pi/daysec
       hoursec=daysec/nhrs
+      lat = 80.
+      lon = 0.
+      mask = 1
+      mask(1,1) = 0
+      rlat = lat(1,1)
       fc=2.*angv*SIN(rlat*rpi)
 
 ! TODO: Ask Richard about this!
@@ -284,7 +304,7 @@ c---------Calculating initial profiles
         betag=grav/t(igr,jgr,1)
 
 c---------Calculating initial u* etc from Geostrophic Drag Laws
-! neXtSIM link: fc is no longer a constant!
+        fc=2.*angv*SIN(lat(igr,jgr)*rpi)
         CALL subgdl(fc,z0,angle,aconst,ustar)
 
         ustar_2D(igr,jgr) = ustar
@@ -303,32 +323,64 @@ c
         call subsoilt(dedzs,tsoil(igr,jgr,:),zsoil,dzeta,t(igr,jgr,1),
      1      z0,ni)
 
-c---------Output initial data and profiles
-        open(11,file='CONSTANT.dat')
-        write(11,'(/,12x,"Time step (dt)=",f5.2)') ds
-        write(11,'(//,"   alpha,deta,z0 =",5e14.6)') alpha,deta,z0
-        write(11,'(/,"   rssby,rl0,bl  =",5e14.6)') ug/fc/z0,rl0,rlb
-        write(11,'(/,"   blh,nj,nv     =",e14.6,2i10)') ztop,nj,nv
-        close(11)
-        open(11,file='MEAN-INI.dat')
-        call meanout(zm,zt,u(igr,jgr,:),v(igr,jgr,:),t(igr,jgr,:),
-     1      theta,p(igr,jgr,:),q(igr,jgr,:),qi(igr,jgr,:),z0,nj,11)
-        close(11)
-        open(12,file='TURB-INI.dat')
-        call turbout(zm,zt,e(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),
-     1      wt(igr,jgr,:),wq(igr,jgr,:),wqi(igr,jgr,:),ep(igr,jgr,:),
-     2      km(igr,jgr,:),kh(igr,jgr,:),tld(igr,jgr,:),z0,nj,12)
-        close(12)
-        open(11,file='TSOILINI.dat')
-        call stempout(tsoil(igr,jgr,:),zsoil,ni,11)
-        close(11)
-
         do i=2,nj
          qold(igr,jgr,i)=q(igr,jgr,i)
          qiold(igr,jgr,i)=qi(igr,jgr,i)
         end do
       end do
       end do
+
+c---------Output initial data and profiles
+        open(11,file='CONSTANT.dat')
+        write(11,'(/,12x,"Time step (dt)=",f5.2)') ds
+        write(11,'(//,"   alpha,deta,z0 =",5e14.6)') alpha,deta,z0
+! Line below should be writen in 2D into a netCDF file
+        write(11,'(/,"   rssby,rl0,bl  =",5e14.6)') ug/fc/z0,rl0,rlb
+        write(11,'(/,"   blh,nj,nv     =",e14.6,2i10)') ztop,nj,nv
+        close(11)
+
+      call init_cond%init('INIT_COND.nc', mgr, ngr, mask, lon, lat,
+     1                                         zm=zm, zt=zt, zgnd=zsoil)
+      call init_cond%add_var("U", "zm")
+      call init_cond%add_var("V", "zm")
+      call init_cond%add_var("Theta", "zm")
+      call init_cond%add_var("P", "zm")
+      call init_cond%add_var("Q", "zm")
+      call init_cond%add_var("QI", "zm")
+
+      call init_cond%add_var("E", "zt")
+      call init_cond%add_var("uw", "zt")
+      call init_cond%add_var("vw", "zt")
+      call init_cond%add_var("ep", "zt")
+      call init_cond%add_var("wt", "zt")
+      call init_cond%add_var("wq", "zt")
+      call init_cond%add_var("wqi", "zt")
+      call init_cond%add_var("km", "zt")
+      call init_cond%add_var("kh", "zt")
+      call init_cond%add_var("tld", "zt")
+
+      call init_cond%add_var("tsoil", "zgnd")
+
+      call init_cond%append_time(time)
+      call init_cond%append_var("U", u)
+      call init_cond%append_var("V", v)
+      call init_cond%append_var("Theta", theta_out)
+      call init_cond%append_var("P", p)
+      call init_cond%append_var("Q", q)
+      call init_cond%append_var("QI", qi)
+
+      call init_cond%append_var("E", e)
+      call init_cond%append_var("uw", uw)
+      call init_cond%append_var("vw", vw)
+      call init_cond%append_var("ep", ep)
+      call init_cond%append_var("wt", wt)
+      call init_cond%append_var("wq", wq)
+      call init_cond%append_var("wqi", wqi)
+      call init_cond%append_var("km", km)
+      call init_cond%append_var("kh", kh)
+      call init_cond%append_var("tld", tld)
+
+      call init_cond%append_var("tsoil", tsoil)
 
 c---------Initialization array used in solving matrix
       do 80 l=1,nv
@@ -347,112 +399,68 @@ c---------Outputing iteration information
      1             16x,"     Number of Hours Per Earth Day : ",i4,/,
      2             16x,"Number of Time Step Per Earth Hour : ",i4)')
      3  nds,nhrs,nmts
+
 c---------Open files for data output during the time integration
-      OPEN(31,FILE='SRFV-ALL.dat')
-      WRITE(31,'(""" Time,E0,u*,uw,vw,wt,km,kh,1/LO,T0,blht""")')
-      WRITE(31,'(11e14.6)') 0.,e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,
-     1      wt0,km(igr,jgr,1),kh(igr,jgr,1),
-     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,t(igr,jgr,1),blht
+      call srfv_all%init('SRFV-ALL.nc', mgr, ngr, mask, lon, lat)
+      call srfv_all%add_var("E0")
+      call srfv_all%add_var("u*")
+      call srfv_all%add_var("uw")
+      call srfv_all%add_var("vw")
+      call srfv_all%add_var("wt")
+      call srfv_all%add_var("km")
+      call srfv_all%add_var("kh")
+!      call srfv_all%add_var("1/LO")
+      call srfv_all%add_var("T0")
+!      call srfv_all%add_var("blht")
 
-      OPEN(29,FILE='SV6-8.dat')
-      WRITE(29,'(""" Time,E0,u*,wt,T0,T1,U2,V2,dlw,dsw,lw,sw,h0,e0,GFlux
-     1,HLW,HSW,Rnet""")')
+!      call SNetRad%init('SNetRad.nc', mgr, ngr, mask, lon, lat)
+!      call SNetRad%add_var("HLW")
+!      call SNetRad%add_var("HSW")
+!      call SNetRad%add_var("RNet")
 
-      OPEN(28,FILE='SNetRad.dat')
-      WRITE(28,'(""" Time,HLW,HSW,RNet""")')
+      call Turb%init('Turb.nc', mgr, ngr, mask, lon, lat, zt=zt)
+      call Turb%add_var("e", "zt")
+      call Turb%add_var("uw", "zt")
+      call Turb%add_var("vw", "zt")
+      call Turb%add_var("tld", "zt")
+      call Turb%add_var("ep", "zt")
+      call Turb%add_var("km", "zt")
+      call Turb%add_var("kh", "zt")
+      call Turb%add_var("wq", "zt")
+      call Turb%add_var("wqi", "zt")
+!      call Turb%add_var("rnet", "zt")
+      call Turb%add_var("wt", "zt")
+
+      call Met%init('Met.nc', mgr, ngr, mask, lon, lat, zm=zm)
+      call Met%add_var("u", "zm")
+      call Met%add_var("v", "zm")
+      call Met%add_var("t", "zm")
+      call Met%add_var("p", "zm")
+      call Met%add_var("q", "zm")
+      call Met%add_var("qi", "zm")
 
 c===================The Beginning of the Time Integration
       do 9999 jd=1,nds                                       ! Earth days
       jd10=jd/10
 
-      do igr = 1, mgr
-      do jgr = 1, ngr
-c---------Calculating Boundary-Layer Height
-c -> This is a diagnostic (blht)
-        ss05=.05*SQRT(uw(igr,jgr,1)*uw(igr,jgr,1)
-     1          +vw(igr,jgr,1)*vw(igr,jgr,1))
-        ssz1=0.
-c        ss05=wt(1)
-        do 201 j=2,nj-1
-          ssz2=.5*SQRT(uw(igr,jgr,j)*uw(igr,jgr,j)
-     1          +vw(igr,jgr,j)*vw(igr,jgr,j))
-c          ssz2=wt(j)
-          IF( (ss05.le.ssz1).and.(ss05.ge.ssz2) ) THEN
-            blht=zt(j-1)+(zt(j)-zt(j-1))*(ss05-ssz1)/(ssz2-ssz1)
-            GOTO 201
-          ENDIF
-            ssz1=ssz2
-201     CONTINUE
-
-c---------Open file for data output during time integrations
-        OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
-     1      '.dat')
-
-        OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)
-     1      //CHAR(48+jd-jd10*10)//'.dat')
-        WRITE(32,'(""" Time,E0,u*,uw,vw,wt,km,kh,1/LO,blh,T1,T2,tl1,tl
-     1 d1,U2,V2,SQRT(U2^2+V2^2),forcing""")')
-        WRITE(32,'(20e14.6)') 0.,e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,
-     1      vw0,wt0,km(igr,jgr,1),kh(igr,jgr,1),
-     1 -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,theta_out(igr,jgr,:),
-     2      theta_out(igr,jgr,:),tl(1),tld(igr,jgr,1),
-     3      u(igr,jgr,2),v(igr,jgr,2),
-     4      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
-     5      forcing
-
-        OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
-     1      '.dat')
-
-        OPEN(38,FILE='UVT-DAY'//CHAR(48+jd10)
-     1      //CHAR(48+jd-jd10*10)//'.dat')
-        WRITE(38,'(""" Time,Eta,Zm,U,V,Wind,T,Theta""")')
-        do j=1,nj
-          WRITE(38,'(19e14.6)') 0.,deta*(j-1),zm(j),u(igr,jgr,j),
-     1      v(igr,jgr,j),
-     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),
-     3      theta_out(igr,jgr,:)
-        end do
-
-        OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
-     1      '.dat')
-
-        OPEN(39,FILE='Rad-DAY'//CHAR(48+jd10)
-     1      //CHAR(48+jd-jd10*10)//'.dat')
-        WRITE(39,'(
-     1      """ Time,T0,dlw,dsw,lw,sw,h0,e0,gflux,sh,alb""")')
-        WRITE(39,'(19e14.6)') 0.,t(igr,jgr,1),dlw,dsw,lw,sw,h0,e0,gflux,
-     1      sh,albedo1
-
-        OPEN(32,FILE='SV-DAY'//CHAR(48+jd10)//CHAR(48+jd-jd10*10)//
-     1      '.dat')
-
-        OPEN(27,FILE='EL-Sol'//CHAR(48+jd10)
-     1      //CHAR(48+jd-jd10*10)//'.dat')
-        WRITE(27,'(5x,"""time, T_0.52,T_0.77,T_1.27, T_0, Wind,
-     1 T_0.53-T_1.27,T_0.77-T_1.27""")')
-c
-        IF(jd.eq.3) then
-          OPEN(59,FILE='sefb.dat')
-        ENDIF
-
-      end do
-      end do
-
-c      WRITE(6,'(i9,14f10.4,//)')
-c     1  jd,s00,s0c,ASIN(sdec)/rpi,ASIN(ss+cc)/rpi
-c
       do 9998 jh=1,nhrs                                                    ! Earth hours of each day
       WRITE(6,'(//,10x,"TIME INTEGRATION for Earth Day  ",i2,
      1                   "  and Earth Hour  ",i2)') jd,jh
       do 9997 jm=1,nmts                                                    ! One Earth hour integration
 
+! Increment the calendar-aware time variable
+      time = time + timedelta(seconds=int(ds))
+
       do 9996 igr=1,mgr
       do 9996 jgr=1,ngr
 
-! betag and ustar are in the flxsrf common block and needs to be updated
-! for every grid point and at every time step
+! betag and ustar are in the flxsrf common block and and fc is in the
+! consta block. Those need, therefore, to be updated for every grid
+! point and at every time step
       betag=grav/t(igr,jgr,1)
       ustar=ustar_2D(igr,jgr)
+      fc=2.*angv*SIN(lat(igr,jgr)*rpi)
+
 c---------Calculate celestial mechanics for the current solar day
       ar=slon*rpi                   ! Areocentric longitude in radians
       ar=2*pi*(jd+311)/365          ! Model begins 9th November, Pielke 1984 p211
@@ -465,8 +473,8 @@ c     1                  +.134208*SIN(ar)+.004177*SIN(2.*ar)
       cdec=SQRT(1.-sdec*sdec)                 ! cos(sun decline angle)
       s0c=1373.*rd                      ! current solar flux at TOA
       slon=slon!+.986!.538      ! Areocentric longitude for next solar day
-      cc=cdec*COS(rlat*rpi)
-      ss=sdec*SIN(rlat*rpi)
+      cc=cdec*COS(lat(igr,jgr)*rpi)
+      ss=sdec*SIN(lat(igr,jgr)*rpi)
 c
 c---------Calculating surface fluxes using Monin-Obukhov similarity
       ha=(1.*jm/nmts+jh-1.)/24.*2.*pi-pi     ! Hour angle in radians
@@ -606,32 +614,6 @@ c
 
 c==============Calculating soil temperature
 c
-c==============Outputing
-c---------Outputing surface values
-      WRITE(28,'(19e14.6)') ds*jm/hoursec+(jh-1.)+(jd-1.)*nhrs,
-     1      hlw(2),hsw(2),rnet(2)
-      IF( (jh.ge.7).AND.(jh.le.10) ) THEN
-        WRITE(29,'(19e14.6)') ds*jm/hoursec+(jh-1.)+(jd-1.)*nhrs,
-     1      e(igr,jgr,:1),ustar_2D(igr,jgr),wt0,theta_out(igr,jgr,1),
-     2      theta_out(igr,jgr,2),u(igr,jgr,2),v(igr,jgr,2),p(igr,jgr,2),
-     3      dlw,dsw,lw,sw,h0,e0,gflux,hlw(2),hsw(2),rnet(2)
-      ENDIF
-
-      IF(MOD(jm,jmout).eq.0) then
-c        WRITE(6,'("  t=",f8.4,
-c     1       "  E0=",e13.6,"  u*=",e13.6,"  wt=",e13.6,/,12x,
-c     2       " 1/L=",e13.6,"  tl=",e13.6," tld=",e13.6,/,12x,
-c     3       "  T0=",e13.6,"  T1=",e13.6,/,12x,
-c     4       "  u1=",e13.6,"  v1=",e13.6," (u^2+v^2)^(1/2)=",e13.6 )')
-c     5      ds*jm/hoursec+(jh-1.),e(1),ustar,wt0,
-c     6      -vk*betag*wt0/ustar**3,tl(1),tld(1),theta(1),theta(2),
-c     7      u(2),v(2),SQRT(u(2)*u(2)+v(2)*v(2))
-        WRITE(31,'(19e14.6)') ds*jm/hoursec+(jh-1.)+(jd-1.)*nhrs,
-     1      e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,wt0,wq0,wqi0,
-     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,theta_out(igr,jgr,1),
-     3      theta_out(igr,jgr,2),tl(1),tld(igr,jgr,1),u(igr,jgr,2),
-     4      v(igr,jgr,2),SQRT(u(igr,jgr,2)*u(igr,jgr,2)
-     5          +v(igr,jgr,2)*v(igr,jgr,2)),forcing
 c---------Calculating Boundary-Layer Height
         ss05=.05*SQRT(uw(igr,jgr,1)*uw(igr,jgr,1)
      1          +vw(igr,jgr,1)*vw(igr,jgr,1))
@@ -647,52 +629,6 @@ c          ssz2=wt(j)
           ENDIF
           ssz1=ssz2
 202     CONTINUE
-
-        WRITE(32,'(20e14.6)') ds*jm/hoursec+(jh-1.),
-     1      e(igr,jgr,:1),ustar_2D(igr,jgr),uw0,vw0,wt0,wq0,wqi0,
-     2      -vk*betag*wt0/ustar_2D(igr,jgr)**3,blht,
-     3      theta_out(igr,jgr,1),theta_out(igr,jgr,2),tl(1),
-     4      tld(igr,jgr,1),u(igr,jgr,2),v(igr,jgr,2),
-     5      SQRT(u(igr,jgr,2)*u(igr,jgr,2)+v(igr,jgr,2)*v(igr,jgr,2)),
-     6      forcing
-
-        do j=1,nj
-          WRITE(38,'(19e14.6)') ds*jm/hoursec+(jh-1.),
-     1      deta*(j-1),zm(j),u(igr,jgr,j),v(igr,jgr,j),
-     2      SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2),t(igr,jgr,j),
-     3      theta_out(igr,jgr,j)
-        end do
-
-        WRITE(39,'(19e14.6)') ds*jm/hoursec+(jh-1.),
-     1      t(igr,jgr,1),dlw,dsw,lw,sw,h0,e0,gflux,sh,albedo1
-
-c---------Output T (K) on three MPF levels (0.52, 0.77 & 1.27)
-        do i=1,3
-          do j=2,nj
-            IF( (zout(i).ge.zm(j)).AND.(zout(i).le.zm(j+1)) ) GOTO 91
-          end do
-91        CONTINUE
-          tout(i)=t(igr,jgr,j)+(t(igr,jgr,j+1)-t(igr,jgr,j))*
-     1      alog((zout(i)/z0+1.)/(zm(j)/z0+1.))
-     2      /alog((zm(j+1)/z0+1.)/(zm(j)/z0+1.))
-        end do
-
-        wind=SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2)+
-     1      ( SQRT(u(igr,jgr,j+1)**2+v(igr,jgr,j+1)**2)
-     2       -SQRT(u(igr,jgr,j)**2+v(igr,jgr,j)**2) )*
-     3      alog((zwind/z0+1.)/(zm(j)/z0+1.))
-     4      /alog((zm(j+1)/z0+1.)/(zm(j)/z0+1.))
-
-        WRITE(27,'(1x,e13.6,1x,3e13.6,2(1x,e13.6),1x,2e14.6)')
-     1      ds*jm/hoursec+(jh-1.),(tout(l),l=1,3),t(igr,jgr,1),wind,
-     2      tout(1)-tout(3),tout(2)-tout(3)
-c
-      ENDIF
-c
-      IF( (jd.eq.3).and.(MOD(jm,jmout).eq.0) ) then
-        WRITE(59,'(1x,9e14.6)') ds*jm/hoursec+(jh-1.),
-     1      lw+sw,h0,e0,gflux
-      endif
 c      PRINT*,t(1)                                                      !**************************************** T ****************************
 c      pause
 c++++++++++++++Calculating soil temperature
@@ -720,153 +656,64 @@ c
  9996 CONTINUE                           ! This is the spatial do-loop
 
       ttd=ttd+ds
+
+c==============Outputing at time step level
+
+c---------Outputing surface values
+
+!      call SNetRad%append_time(time)
+!      call SNetRad%append_var("HLW", hlw(:,:,2))
+!      call SNetRad%append_var("HSW", hsw(:,:,2))
+!      call SNetRad%append_var("RNet", rnet(:,:,2))
+
+      IF(MOD(jm,jmout).eq.0) then
+        call srfv_all%append_time(time)
+        call srfv_all%append_var("E0", e(:,:,1))
+        call srfv_all%append_var("u*", ustar_2D)
+        call srfv_all%append_var("uw", uw(:,:,1))
+        call srfv_all%append_var("vw", vw(:,:,1))
+        call srfv_all%append_var("wt0", wt(:,:,1))
+        call srfv_all%append_var("km", km(:,:,1))
+        call srfv_all%append_var("kh", kh(:,:,1))
+!        call srfv_all%append_var("1/LO", wlo)
+        call srfv_all%append_var("T0", t(:,:,1))
+!        call srfv_all%append_var("blht", blht)
+      ENDIF
+
 c
  9997 CONTINUE                           ! This is the time-step do-loop
 c
-c---------Writing hourly data output
+c---------Writing hourly data output can be done here
       j10=jh/10
 c
-      if (jd.eq.10) then
-        if (jh.eq.24) then
-          do igr=1,mgr
-          do jgr=1,ngr
-            open (55,FILE='0.Turb.DAT')
-            write (55,*) 'zt,e,uw,vw,tl,tld,ep,km,kh,wq,wqi,rnet,wt'
-            do i=1,nj
-              WRITE(55,2000) zt(i),e(igr,jgr,:i),uw(igr,jgr,i),
-     1          vw(igr,jgr,i),tl(i),tld(igr,jgr,i),ep(igr,jgr,:i),
-     2          km(igr,jgr,i),kh(igr,jgr,i),wq(igr,jgr,i),
-     3          wqi(igr,jgr,i),rnet(i),wt(igr,jgr,i)
-            end do
-            close (55)
+      call Turb%append_time(time)
+      call Turb%append_var("e", e)
+      call Turb%append_var("uw",uw )
+      call Turb%append_var("vw", vw)
+      call Turb%append_var("tld", tld)
+      call Turb%append_var("ep", ep)
+      call Turb%append_var("km", km)
+      call Turb%append_var("kh", kh)
+      call Turb%append_var("wq", wq)
+      call Turb%append_var("wqi", wqi)
+!      call Turb%append_var("rnet", rnet)
+      call Turb%append_var("wt", wt)
 
-            open (55,FILE='0.Met.DAT')
-            write (55,*) 'zm, u, v, t, p, q, qi'
-            do i=1,nj
-              WRITE(55,3000) zm(i),u(igr,jgr,i),v(igr,jgr,i),
-     1          t(igr,jgr,i),p(igr,jgr,i),q(igr,jgr,i),qi(igr,jgr,i)
-            end do
-            close (55)
-          end do
-          end do
-        end if
-      end if
-c
-c      OPEN(55,FILE='tice-D'//CHAR(48+jd10)//
-c     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-c     2                      CHAR(48+jh-j10*10)//'.dat')
-c      write(55,*) 'zm, qi, tice'
-c      do i=1,nj
-c        write (55,1000) zm(i),qi(i),tice(i)
-c      end do
-c      CLOSE(55)
-c
-      if (jd.ge.nds) then
-c
-        do igr=1,mgr
-        do jgr=1,ngr
-          OPEN(55,FILE='M-D'//CHAR(48+jd10)//
-     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-     2                      CHAR(48+jh-j10*10)//'.dat')
-          CALL meanout(zm,zt,u(igr,jgr,:),v(igr,jgr,:),t(igr,jgr,:),
-     1      theta_out(igr,jgr,:),p(igr,jgr,:),q(igr,jgr,:),
-     2      qi(igr,jgr,:),z0,nj,55)
-          CLOSE(55)
-
-          OPEN(55,FILE='T-D'//CHAR(48+jd10)//
-     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-     2                      CHAR(48+jh-j10*10)//'.dat')
-          CALL turbout(zm,zt,e(igr,jgr,:),uw(igr,jgr,:),vw(igr,jgr,:),
-     1      wt(igr,jgr,:),wq(igr,jgr,:),wqi(igr,jgr,:),ep(igr,jgr,:),
-     2      km(igr,jgr,:),kh(igr,jgr,:),tld,z0,nj,55)
-          CLOSE(55)
-
-          OPEN(55,FILE='ST-D'//CHAR(48+jd10)//
-     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-     2                      CHAR(48+jh-j10*10)//'.dat')
-          call stempout(tsoil,zsoil,ni,55)
-          CLOSE(55)
-c
-        end do
-        end do
-      END if
-c
-c        OPEN(55,FILE='Dust-D'//CHAR(48+jd10)//
-c     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-c     2                      CHAR(48+jh-j10*10)//'.dat')
-c        write(55,*) 'rad, zd, Conc1, Conc2, tvis'
-c        do k=1,ir,60
-c          do i=1,nj
-c             conc2(k,i)=conc1(k,i)/scaled(k)
-c             write (55,1000) rad(k),zd(i),conc1(k,i),conc2(k,i)
-c     1              ,tvis(i)
-c          end do
-c        end do
-c        CLOSE(55)
-c        OPEN(55,FILE='Starp-D'//CHAR(48+jd10)//
-c     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-c     2                      CHAR(48+jh-j10*10)//'.dat')
-c          write (55,*) 'zt, ustar, tstar, qstar, qistar'
-c          do i=1,nj
-c             write (55,1000) zt(i),ustarp(i),tstarp(i),qstarp(i)
-c     1        ,qistarp(i)
-c          end do
-c        CLOSE(55)
-c        OPEN(55,FILE='Tvisk-D'//CHAR(48+jd10)//
-c     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-c     2                      CHAR(48+jh-j10*10)//'.dat')
-c        write (55,*) 'radius, tvisk'
-c          do k=1,ir
-c             write (55,1000) rad(k),tvisk(k)
-c          end do
-c        CLOSE(55)
-1000  FORMAT(5e14.6)
-2000  FORMAT(13e14.6)
-3000  FORMAT(7e14.6)
-c1000    format(5e15.6E3)
-c---------Outputing data for 3rd SOL
-      IF(jd.eq.nds) THEN
-c       IF( (jh.eq.6).or.(jh.eq.10).OR.(jh.eq.16).OR.(jh.eq.22) ) THEN
-c           OPEN(26,FILE='SLT'//CHAR(48+j10)//CHAR(48+jh-j10*10)
-c     1                                                         //'.dat')
-        OPEN(26,FILE='SLT-D'//CHAR(48+jd10)//
-     1                      CHAR(48+jd-jd10*10)//'-H'//CHAR(48+j10)//
-     2                      CHAR(48+jh-j10*10)//'.dat')
-        WRITE(26,'(5x,"zm, T, zt, R_HR,SR_HR,TR_HR, LWFD,LWFU, RFU_HR,
-     1RFD_HR, T_HR, T_HR, VS_HF,VL_HF, <wt>,<wq>, Q,Qi, Wind, zt ")')
-c        WRITE(26,'(5x,"""zm, T, zt, R_HR,SR_HR,TR_HR, LWFD,LWFU, RFU_HR,RF
-c     1D_HR, T_HR, T_HR, VS_HF,VL_HF, <wt>,<wq>, Q,Qi, Wind, zt """)')
-        do j=2,nj-1
-c			    rho=100.*(p(j)+p(j+1))/rgas/(t(j)+t(j+1))
-          do igr=1,mgr
-          do jgr=1,ngr
-            WRITE(26,'(29e14.6)') zm(j),t(igr,jgr,j),zt(j),
-     1          rnet(j)*hoursec,hsw(j)*hoursec,hlw(j)*hoursec,fd(j),
-     2          fu(j),sd(j),su(j),hu(j)*hoursec,hd(j)*hoursec,
-     3          (rnet(j)+turbhr(j))*hoursec,turbhr(j)*hoursec,
-     4          rho*cp*wt(igr,jgr,j),rho*latent*wq(igr,jgr,j),
-     5          q(igr,jgr,j)*1.e3,qi(igr,jgr,j)*1.e6,
-     6          SQRT(u(igr,jgr,j)*u(igr,jgr,j)
-     7              +v(igr,jgr,j)*v(igr,jgr,j)),zt(j)
-          end do
-          end do
-        end do
-        CLOSE(26)
-      ENDIF
-c        ENDIF
+      call Met%append_time(time)
+      call Met%append_var("u", u)
+      call Met%append_var("v", v)
+      call Met%append_var("t", t)
+      call Met%append_var("p", p)
+      call Met%append_var("q", q)
+      call Met%append_var("qi", qi)
 c
  9998 CONTINUE                        ! This is the Earth hour do-loop
-      CLOSE(32)
-      CLOSE(38)
-      CLOSE(39)
-      CLOSE(27)
-      CLOSE(59)
-c---------Writing SOL data output if needed here
+
+c---------Writing daily output can be done here
+
  9999 CONTINUE                           ! This is the Solar-day do-step
+
 c
-      CLOSE(28)
-      CLOSE(29)
-      CLOSE(31)
 c
       PRINT*,'Program complete'
 c      pause
