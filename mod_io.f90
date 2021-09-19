@@ -38,7 +38,7 @@ module io
 
     logical, private :: missing_set
     real, private :: missing_value
-    character(len=short_string), private :: vname, long_name, standard_name, units, grid_mapping
+    character(len=short_string), private :: zdim, vname, long_name, standard_name, units, grid_mapping
 
     contains
       procedure, public :: init=>init_output_var
@@ -416,14 +416,18 @@ double precision function netCDF_time(self, time_in) result(time_out)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routine to create a new netCDF variable (object)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  subroutine init_output_var(self, vname, long_name, standard_name, units, grid_mapping, missing_value)
+  subroutine init_output_var(self, vname, zdim, long_name, standard_name, units, grid_mapping, missing_value)
 
     class(output_var), intent(inout) :: self
     character(len=*), intent(in) :: vname
-    character(len=*), optional, intent(in) :: long_name, standard_name, units, grid_mapping
+    character(len=*), optional, intent(in) :: zdim, long_name, standard_name, units, grid_mapping
     real, optional, intent(in) :: missing_value
 
     self%vname = vname
+
+    if ( present(zdim) ) then
+      self%zdim = zdim
+    endif
 
     if ( present(long_name) ) then
       self%long_name = long_name
@@ -462,7 +466,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
 ! Routine to initialise a netCDF file
 !   - We write the x, y, and time dimensions, mask, and lat/lon coords
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  subroutine init_netCDF(self, fname, mgr, ngr, mask, lon, lat, nz)
+  subroutine init_netCDF(self, fname, mgr, ngr, mask, lon, lat, zm, zt, zgnd, nz)
 
     implicit none
 
@@ -471,12 +475,14 @@ double precision function netCDF_time(self, time_in) result(time_out)
     integer, intent(in) :: mgr, ngr
     integer, dimension(:,:), intent(in) :: mask
     real, dimension(:,:), intent(in) :: lon, lat
+    real, dimension(:), intent(in), optional :: zm, zt, zgnd
     integer, intent(in), optional :: nz
 
     ! Working variables
     ! We set time to 0. becuase ncio requires some data for the initial time
     double precision, parameter :: time = 0.
-    character(len=long_string) :: time_string
+    character(len=long_string) :: time_string, dimname
+    integer :: i
 
     ! Save the file name
     self%fname = fname
@@ -487,6 +493,15 @@ double precision function netCDF_time(self, time_in) result(time_out)
     ! Write dimensions, either three or four, depending on inputs
     call nc_write_dim(self%fname, "x", x=1, dx=1, nx=mgr)
     call nc_write_dim(self%fname, "y", 1, nx=ngr)
+    if ( present(zm) ) then
+      call nc_write_dim(self%fname, "zm", zm, units="m")
+    endif
+    if ( present(zt) ) then
+      call nc_write_dim(self%fname, "zt", zt, units="m")
+    endif
+    if ( present(zgnd) ) then
+      call nc_write_dim(self%fname, "zgnd", zgnd, units="m")
+    endif
     if ( present(nz) ) then
       call nc_write_dim(self%fname, "z", 1, nx=nz)
     endif
@@ -512,14 +527,13 @@ double precision function netCDF_time(self, time_in) result(time_out)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Routine to add a netCDF variable to the file object
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  subroutine add_var(self, vname, ndims, long_name, standard_name, units, grid_mapping, missing_value)
+  subroutine add_var(self, vname, zdim, long_name, standard_name, units, grid_mapping, missing_value)
 
     implicit none
 
     class(output_file), intent(inout) :: self
     character(len=*), intent(in) :: vname
-    integer, intent(in) :: ndims
-    character(len=*), intent(in), optional :: long_name, standard_name, units, grid_mapping
+    character(len=*), intent(in), optional :: zdim, long_name, standard_name, units, grid_mapping
     real, intent(in), optional :: missing_value
 
     ! Working variables
@@ -529,7 +543,7 @@ double precision function netCDF_time(self, time_in) result(time_out)
       stop "mod_io: add_var: file object not initialised"
     endif
 
-    call variable%init(vname, long_name, standard_name, units, grid_mapping, missing_value)
+    call variable%init(vname, zdim, long_name, standard_name, units, grid_mapping, missing_value)
 
     self%var_list = push_back(self%var_list, variable)
 
@@ -623,7 +637,8 @@ double precision function netCDF_time(self, time_in) result(time_out)
     do i = 1, size(self%var_list)
       if ( vname .eq. self%var_list(i)%vname ) then
         if ( self%var_list(i)%missing_set ) then
-          call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
+          call nc_write(self%fname, vname, values,                                 &
+            dim1="x", dim2="y", dim3=self%var_list(i)%zdim, dim4="time",           &
             start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
             long_name=self%var_list(i)%long_name,                                                       &
             standard_name=self%var_list(i)%standard_name,                                               &
@@ -631,7 +646,8 @@ double precision function netCDF_time(self, time_in) result(time_out)
             grid_mapping=self%var_list(i)%grid_mapping,                                                 &
             missing_value=self%var_list(i)%missing_value)
         else
-          call nc_write(self%fname, vname, values, dim1="x", dim2="y", dim3="z", dim4="time",           &
+          call nc_write(self%fname, vname, values,                                 &
+            dim1="x", dim2="y", dim3=self%var_list(i)%zdim, dim4="time",           &
             start=[1,1,1,self%time_slice], count=[size(values,1), size(values,2), size(values,3), 1],   &
             long_name=self%var_list(i)%long_name,                                                       &
             standard_name=self%var_list(i)%standard_name,                                               &

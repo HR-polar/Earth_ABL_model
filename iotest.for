@@ -61,12 +61,12 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         time = datetime(2015,12,15,12,15,12,15)
         print *, time%isoformat()
         fname = "out_test.nc"
-        call output_test%init(fname, mgr, ngr, mask, rlon, rlat, 10)
-        call output_test%add_var("test2D", 2,
+        call output_test%init(fname, mgr, ngr, mask, rlon, rlat, nz=10)
+        call output_test%add_var("test2D",
      1      long_name="test_for_a_2D_case",
      1      standard_name="test for a 2D case",
      1      units = "-")
-        call output_test%add_var("test3D", 3,
+        call output_test%add_var("test3D", zdim="z",
      1      long_name="test_for_a_3D_case",
      1      standard_name="test for a 3D case",
      1      units = "-")
@@ -108,7 +108,7 @@ cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         fname = "msl_interp.nc"
         print *, fname
         call interp_out%init(fname, mgr, ngr, mask, rlon, rlat)
-        call interp_out%add_var("msl", 2,
+        call interp_out%add_var("msl",
      1      long_name="interpolated_msl",
      2      standard_name="interpolated msl",
      3      units="Pa",
